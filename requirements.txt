@@ -1,0 +1,20 @@
+langgraph>=0.2.60
+langgraph-checkpoint-sqlite>=2.0.0
+langchain-core>=0.3.29
+langchain-text-splitters>=0.3.5
+langchain-anthropic>=0.3.0
+langchain-community>=0.3.14
+
+# retrieval: vector store + local ONNX embeddings/reranker + lexical
+chromadb>=0.5.23
+fastembed>=0.5.0
+rank-bm25>=0.2.2
+
+httpx>=0.28.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+rich>=13.9.0
+python-dotenv>=1.0.1
+
+# dev
+pytest>=8.3.0

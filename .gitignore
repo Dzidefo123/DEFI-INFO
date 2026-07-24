@@ -1,0 +1,11 @@
+.env
+.chroma/
+.checkpoints.sqlite
+eval_k*.txt
+eval_status.txt
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local Claude Code tool permissions (machine-specific)
+.claude/settings.local.json
