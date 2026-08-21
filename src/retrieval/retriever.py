@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import threading
 from collections.abc import Iterable
 from functools import lru_cache
@@ -70,6 +72,56 @@ def _bm25(protocols: frozenset[str] | None) -> BM25Retriever | None:
         return _build_bm25(protocols)
 
 
+
+# Question scaffolding, removed before BM25 indexes or queries. Not a generic
+# stopword list — it is specifically the words that make a question a question,
+# plus articles and the commonest verbs.
+#
+# Without this the sparse leg spends its budget matching question FORM. Measured
+# on "What does IOC mean?": BM25's top hits were "What does 'Action already
+# expired' mean?", "What assets can a vault trade?" and three more chosen for
+# overlapping on what/does/mean, while the chunk actually defining IOC —
+# "Immediate or Cancel (IOC): an order that will be canceled if it is not
+# immediately filled" — was absent from its top SIXTY. A support corpus is full
+# of pages titled as questions, so the query form matches the wrong thing
+# extremely well.
+#
+# Deliberately conservative. Anything that could be a ticker, an acronym or a
+# protocol term stays: the sparse leg exists precisely to catch identifiers a
+# user pastes verbatim, and a stopword list that eats "ALO" or "GTC" would
+# remove the reason for having it.
+_QUESTION_WORDS = frozenset("""
+    a an the this that these those
+    what which who whom whose when where why how
+    is are was were be been being am
+    do does did doing done
+    have has had having
+    can could will would shall should may might must
+    of in on at to for with by from about into over under as
+    i me my we our you your it its
+    and or but if then than so
+    mean means meaning explain tell show
+    there here
+""".split())
+
+_TOKEN = re.compile(r"[a-z0-9][a-z0-9_.\-]*")
+
+
+def bm25_tokens(text: str) -> list[str]:
+    """Tokenize for BM25, dropping question scaffolding.
+
+    Applied to documents and queries alike — BM25Retriever uses one function for
+    both, which is what keeps the index and the query in the same vocabulary.
+
+    Falls back to the unfiltered tokens when filtering would leave nothing. A
+    query of pure scaffolding ("what is it?") has no content terms, and an empty
+    query matches nothing at all — worse than matching the wrong thing.
+    """
+    tokens = _TOKEN.findall(text.lower())
+    kept = [t for t in tokens if t not in _QUESTION_WORDS]
+    return kept or tokens
+
+
 @lru_cache(maxsize=16)
 def _build_bm25(protocols: frozenset[str] | None) -> BM25Retriever | None:
     """BM25 over the corpus restricted to `protocols`.
@@ -83,7 +135,7 @@ def _build_bm25(protocols: frozenset[str] | None) -> BM25Retriever | None:
     docs = _filter_by_protocol(_corpus(), protocols)
     if not docs:
         return None
-    retriever = BM25Retriever.from_documents(docs)
+    retriever = BM25Retriever.from_documents(docs, preprocess_func=bm25_tokens)
     retriever.k = settings.retrieve_k
     return retriever
 

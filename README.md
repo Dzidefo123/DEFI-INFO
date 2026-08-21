@@ -124,9 +124,9 @@ warning. A marker shared with English is worse than a missing one.
 
 | | recall@5 | MRR@5 |
 |---|---:|---:|
-| Hybrid fusion only | 0.947 | 0.783 |
-| **+ cross-encoder** | **0.969** | **0.874** |
-| Cross-encoder contribution | +0.023 | +0.091 |
+| Hybrid fusion only | 0.954 | 0.864 |
+| **+ cross-encoder** | **0.969** | **0.872** |
+| Cross-encoder contribution | +0.015 | +0.008 |
 
 | Protocol | recall@5 | n |
 |---|---:|---:|
@@ -1409,6 +1409,51 @@ Two costs, both found by re-measuring rather than by assuming the fix was free:
   axes means an example written for one is read as evidence for all three, and
   the prompt now says so explicitly.
 
+**BM25 was matching question scaffolding, and recall@5 could not see it.**
+`What does IOC mean?` returned an API schema page, a validator-delegation
+eligibility section, and three others — nothing that defines the term. The
+answers eval showed the consequence: with no definition in context, the agent
+either declined or filled the gap from its own parameters.
+
+The diagnosis was not the one this README previously carried. It said the API
+page "is denser in the term", implying a ranking loss. In fact the chunk that
+defines IOC — *"Immediate or Cancel (IOC): an order that will be canceled if it
+is not immediately filled"* — was **absent from BM25's top sixty**, and sat at
+rank 38 on the dense side, below `retrieve_k`. Neither leg made it a candidate.
+
+BM25 had no stopword filtering, so the query matched on **what / does / mean**.
+Its top hits were *"What does 'Action already expired' mean?"* and *"What assets
+can a vault trade?"* — selected for overlapping on the question's form. A support
+corpus is full of pages titled as questions, so a question-shaped query matches
+the wrong thing extremely well, and this degrades every "What does X mean?" and
+"How do I Y?" question rather than just this one.
+
+BM25 now strips that scaffolding before indexing or querying. `What does IOC
+mean?` reduces to `['ioc']`, and `trading/order-types` moves from absent to rank
+1. Tickers and acronyms are deliberately kept — `ALO`, `GTC`, a raw `0x…` all
+survive, since catching identifiers pasted verbatim is the whole reason the
+sparse leg exists — and a query that is *entirely* scaffolding falls back to its
+unfiltered tokens, because an empty query matches nothing at all.
+
+**The honest accounting: recall@5 did not move.** It is 0.969 before and after,
+and the miss count is 4 both ways. `doc-009` left the list and `doc-062` — *"How
+do I sign an API request?"* — joined it, now returning `api/nonces-and-api-wallets`
+at rank 1 with `api/signing` at 6. Both are API-authentication pages and the
+label is right: `signing` is the page about generating signatures, while
+`nonces-and-api-wallets` covers replay protection and agent wallets.
+
+That case was **not** relabelled to make the change look better. This README
+already states the rule — the discipline is not relabelling everything defensible
+after seeing results — and a fix that needs the scoring adjusted to show a gain
+has not shown one.
+
+So the case for the change is the mechanism and the measured downstream harm, not
+the metric: one miss had a demonstrated consequence in the answers eval, the
+other returns an adjacent page from the same section, and the underlying defect
+affected every question-shaped query. A single case is 0.008 of recall@5 here,
+which is inside this eval's run-to-run variation — the aggregate was never going
+to be able to show this either way.
+
 **An answer nobody could extract a claim from scored 1.00.** `faithfulness`
 returned a perfect score when the extractor came back empty, reasoning that a
 refusal cannot hallucinate. True of a refusal, and the code could not tell a
@@ -1565,9 +1610,11 @@ added that a specific requirement did not force.
   `SITEMAP` HTML extraction raise `NotImplementedError`. Aave was evaluated as a
   third protocol and rejected precisely because its `llms.txt` is an SPA fallback
   that returns HTML.
-- **Four known retrieval misses at k=5**, and some are arguably labels rather than
-  the retriever. "What does IOC mean?" ranks the API page above `trading/order-types`
-  — both document IOC and the API page is denser in the term.
+- **Four known retrieval misses at k=5.** "What does IOC mean?" used to be one of
+  them and is not any more; a different case took its place. See
+  [Corrections](#corrections) — the count did not move, and the reason for making
+  the change was a mechanism and a measured downstream harm rather than the
+  number.
 - **Golden labels have been wrong more often than the retriever.** Each was
   corrected only after checking the retrieved page actually answered the question.
   **The discipline that matters is not relabelling everything that looks
