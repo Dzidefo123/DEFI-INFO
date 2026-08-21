@@ -6,7 +6,7 @@ from functools import lru_cache
 from langchain_anthropic import ChatAnthropic
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.config import settings
 from src.graph import prompts
@@ -65,6 +65,42 @@ class Routing(BaseModel):
         description="How much investigation the question needs; default cx",
     )
     reason: str = Field(description="One sentence justifying the choice")
+    # The raw value, when the model emitted a `query_type` outside the enum and
+    # it was coerced. Never set on a healthy turn.
+    query_type_coerced: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_an_unknown_depth(cls, data):
+        """Degrade an unrecognised `query_type` to CX instead of raising.
+
+        Asking one call to decide three axes invites the model to answer one of
+        them in another's vocabulary. Measured on the first paid routing run: it
+        returned `query_type='docs'` — an *intent* value — and the resulting
+        ValidationError propagated straight out of `route`, killing the turn.
+
+        `_after_route` already states the rule for the depth axis being absent:
+        the safe response is the CX path, not a crashed turn, because failing
+        closed takes down a working support agent over a missing label. An
+        invalid label is the same situation with more evidence, so it is handled
+        the same way — and CX is the cheap path, so the failure mode is doing
+        less work rather than more.
+
+        Intent is deliberately NOT coerced. It decides whether an account action
+        escalates, and quietly substituting a default there would invent a
+        routing decision the model never made.
+        """
+        if not isinstance(data, dict):
+            return data
+        raw = data.get("query_type")
+        if raw is None or isinstance(raw, QueryType):
+            return data
+        if raw in {q.value for q in QueryType}:
+            return data
+        data = dict(data)
+        data["query_type_coerced"] = str(raw)
+        data["query_type"] = QueryType.CX
+        return data
 
 
 class Verdict(BaseModel):
@@ -180,7 +216,7 @@ def route(state: AgentState) -> dict:
             ("human", state["question"]),
         ]
     )
-    return {
+    out: dict = {
         "intent": result.intent,
         "protocols": _known_protocols(result.protocols),
         "coin": result.coin,
@@ -190,6 +226,15 @@ def route(state: AgentState) -> dict:
         # AgentState.query_type.
         "query_type": effective_query_type(result.intent, result.query_type).value,
     }
+    if result.query_type_coerced is not None:
+        # Surfaced, not swallowed. A router answering one axis in another's
+        # vocabulary is a prompt or model problem, and it is invisible from the
+        # outside once the value has been replaced by a working default.
+        out["errors"] = [
+            f"route: model returned query_type={result.query_type_coerced!r}, "
+            f"which is not a depth classification; treated as cx"
+        ]
+    return out
 
 
 def _above_floor(docs: list[Document], threshold: float | None) -> list[Document]:

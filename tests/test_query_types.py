@@ -163,11 +163,45 @@ def test_routing_defaults_to_cx_when_the_model_omits_the_axis():
     assert routing.query_type is QueryType.CX
 
 
-def test_routing_rejects_a_query_type_outside_the_enum():
-    """Structured output validates the axis, so a hallucinated classification
-    fails loudly here rather than KeyError-ing in the planner later."""
+def test_an_unknown_query_type_degrades_to_the_cheap_path():
+    """Reversed deliberately, after the first paid routing run crashed on it.
+
+    This test used to assert that an unrecognised classification raised, on the
+    reasoning that it should fail loudly at the boundary rather than KeyError in
+    the planner later. The instinct was right and the choice was posed as binary:
+    fail here, or fail there. Degrading here and recording it is the third
+    option, and it satisfies the original concern — the planner still never sees
+    a value outside the enum.
+
+    What the run measured: asking one call to decide three axes invites the model
+    to answer one of them in another's vocabulary. It returned
+    `query_type='docs'`, an intent value, and the ValidationError propagated out
+    of `route` and killed the turn. `_after_route` already fixes the rule for a
+    MISSING depth label — the cheap path, never a crashed turn, because failing
+    closed takes down a working support agent over a label. An invalid label is
+    that situation with more evidence.
+    """
+    routing = Routing(intent="docs", query_type="deep_forensics", reason="x")
+    assert routing.query_type is QueryType.CX
+    assert routing.query_type_coerced == "deep_forensics"
+
+
+def test_the_coercion_is_recorded_rather_than_silent():
+    """Silence is never safety. A router answering one axis in another's
+    vocabulary is a prompt or model defect, and it becomes invisible the moment
+    the bad value is replaced by a working default."""
+    assert Routing(intent="docs", reason="x").query_type_coerced is None
+    assert Routing(
+        intent="docs", query_type=QueryType.RESEARCH, reason="x"
+    ).query_type_coerced is None
+
+
+def test_intent_is_not_coerced():
+    """The depth axis has a safe default; intent does not. It decides whether an
+    account action escalates, so substituting a default would invent a routing
+    decision the model never made."""
     with pytest.raises(Exception):
-        Routing(intent="docs", query_type="deep_forensics", reason="x")
+        Routing(intent="not_an_intent", reason="x")
 
 
 def test_routing_carries_all_three_axes_from_one_call():

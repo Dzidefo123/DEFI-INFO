@@ -190,7 +190,13 @@ and never invents one. Reported as a confusion matrix rather than a scalar,
 because the errors are asymmetric.
 
 > Measured before the query-type axis was added. Whether intent accuracy held is
-> unmeasured.
+> still unmeasured: the re-run attempted on 2026-08-21 exhausted the API credit
+> balance after 46 of 180 cases, all of them from the `docs` class. Those 46 were
+> routed correctly and 21/46 matched the protocol set exactly, but a partial pass
+> over one intent class out of four is not a routing result and is not reported
+> as one. The two harmful protocol picks it did surface are the same pair listed
+> above — `How do I stake HYPE?` read as HyperEVM, `How long does unstaking
+> take?` read as Ethena — which is at least consistent with the older run.
 
 ### Verification — 18 labelled cases, 15 failure modes
 
@@ -1213,6 +1219,42 @@ wrong-protocol chunk, versus 25) rather than a lift.
 
 **The cross-encoder was doing more than credited.** Same repair, opposite
 direction: MRR contribution +0.047 → **+0.091**, recall +0.008 → **+0.023**.
+
+**The router could crash a live turn, and the first paid run found it.**
+`route` asks one model call to decide three axes. It returned
+`query_type='docs'` — an *intent* value in the depth field — and the resulting
+`ValidationError` propagated straight out of the node. Not a degraded answer: an
+unhandled exception on a user's question.
+
+The rule for this already existed one function away. `_after_route` handles a
+*missing* depth label by taking the CX path, on the reasoning that failing closed
+would take down a working support agent over a label. An *invalid* label is the
+same situation with more evidence, so it now degrades the same way and records
+the raw value on the `errors` channel. Intent is deliberately not coerced — it
+decides whether an account action escalates, and defaulting there would invent a
+routing decision the model never made.
+
+A passing test asserted the crash was correct behaviour, on the reasoning that it
+should fail loudly at the boundary rather than `KeyError` in the planner later.
+The instinct was right; the choice was posed as a binary. Degrading at the
+boundary satisfies the original concern too, since the planner still never sees a
+value outside the enum. The test was rewritten to assert the opposite, with that
+argument in it.
+
+**The eval harness reported a billing outage as a model regression.** Credits ran
+out 46 cases into a 180-case routing run. The harness scored every unreachable
+case as a routing error and printed *"routing accuracy: 46/180 = 25.6%"* — a
+number that reads as a catastrophic regression from 87% and is in fact a
+statement about an account balance.
+
+This is the failure the whole repository is built to prevent, committed by the
+tool that measures it: "we looked and the router is bad" rendered
+indistinguishably from "we stopped looking". Infrastructure failures now leave
+the denominator, an incomplete run prints no headline accuracy at all, and the
+partial result is labelled as not a measurement. Paid harnesses also write their
+dumps incrementally — the first crashed run lost every call it had already paid
+for, because the dump was written only at the end, which is exactly what a paid
+run may never reach.
 Fusion's own MRR *fell* on the clean index, because the orphans were duplicate
 copies of correct pages padding its top ranks for free.
 
@@ -1280,19 +1322,28 @@ added that a specific requirement did not force.
 
 ## Honest limitations
 
-- **Answer faithfulness is the one node still un-eval'd at scale.** `route` is
-  measured across 180 cases; `grade`, `generate` and `verify` have been exercised
-  interactively against a live key. What has not run is the aggregate `--answers`
-  judge. Routing accuracy is also agreement-with-my-labels, not ground truth — the
-  router and the golden intents share an author.
+- **Both paid evals were attempted on 2026-08-21 and neither completed.** The
+  API credit balance ran out 46 cases into the 180-case routing run, and the
+  `--answers` run died on the same error before scoring a single case. What the
+  attempt did produce was worth more than the numbers would have been: an
+  unhandled crash in `route` and a harness that reported the outage as a model
+  regression, both in [Corrections](#corrections). The figures below are still
+  the pre-depth-axis ones.
+- **Answer faithfulness remains the one node un-eval'd at scale.** `grade`,
+  `generate` and `verify` have been exercised interactively against a live key,
+  and a single-case smoke test scored faithfulness 1.00, helpful 5/5, cited 5/5,
+  safe 4/5 — one case, which is a plumbing check and not a result. The aggregate
+  `--answers` judge has never run to completion.
+- **Routing accuracy is agreement-with-my-labels, not ground truth** — the router
+  and the golden intents share an author. It also has not been re-measured since
+  the depth axis was added, and the one attempt to do so is what surfaced the
+  crash above.
 - **Risk thresholds and verification cases are synthetic.** Real labelled
   incidents would replace both generators, and the thresholds are uncalibrated
   wherever severity is shown. The invariant bands are the one exception, and
   calibrating them mostly established that they do not matter: every observed
   backing failure lands far inside `critical`, so the bands are documented as
   economic reasoning rather than presented as fitted.
-- **Routing has not been re-measured** since the depth axis was added to the
-  router's output. Intent accuracy may have moved.
 - **The language gate detects positively, so its coverage is not complete.**
   Refusal requires evidence of another language, never merely the absence of
   English — that asymmetry is what keeps `gm` and bare addresses working, and it

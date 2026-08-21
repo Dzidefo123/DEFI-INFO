@@ -11,3 +11,7 @@ __pycache__/
 .claude/settings.local.json
 .features.sqlite
 .collect.log
+eval_routing_out.txt
+eval_answers_out.txt
+eval_routing_dump.jsonl
+eval_answers_dump.jsonl

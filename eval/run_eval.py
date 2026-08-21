@@ -248,6 +248,54 @@ def eval_retrieval(cases: list[dict], k: int = 5) -> dict:
     return {"off": off, "on": on, "unfiltered": unfiltered}
 
 
+
+
+# Exception types that mean "we never got an answer", as opposed to "the model
+# answered badly". The distinction decides the denominator, and getting it wrong
+# turns a billing outage into a model-quality result.
+_INFRASTRUCTURE_MARKERS = (
+    "credit balance",
+    "rate_limit",
+    "rate limit",
+    "overloaded",
+    "timeout",
+    "connection",
+    "APIStatusError",
+    "InternalServerError",
+)
+
+
+def _is_infrastructure(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(m.lower() in text for m in _INFRASTRUCTURE_MARKERS)
+
+
+class _Dump:
+    """Append-as-you-go record of a run that costs money per case.
+
+    Written incrementally, not at the end, because the end is exactly what a
+    paid run may not reach. The first routing run raised on case N and lost every
+    call before it — the money was spent, the answers existed, and nothing was on
+    disk. A partial file from a crashed run is still worth having; a complete
+    file that only materialises on success is not.
+    """
+
+    def __init__(self, path: str | None):
+        self.path = path
+        self._fh = open(path, "w", encoding="utf-8") if path else None
+
+    def write(self, record: dict) -> None:
+        if self._fh is None:
+            return
+        self._fh.write(json.dumps(record, ensure_ascii=False, default=str) + chr(10))
+        self._fh.flush()
+
+    def close(self, label: str) -> None:
+        if self._fh is not None:
+            self._fh.close()
+            console.print(f"[dim]{label} -> {self.path}[/dim]")
+
+
 # --- routing (needs API key) --------------------------------------------
 
 
@@ -288,7 +336,9 @@ def eval_routing(cases: list[dict], dump_path: str | None = None) -> dict:
     from src.protocols import is_known
 
     dump_path = dump_path or os.environ.get("ROUTING_DUMP")
-    records = []
+    dump = _Dump(dump_path)
+    failed = []        # the router answered, and answered wrongly
+    unreachable = []   # we never got an answer; not the router's fault
 
     # Guardrail cases never reach the router, so they are not scored here.
     cases = [c for c in cases if c.get("intent") and not c.get("guardrail")]
@@ -300,7 +350,31 @@ def eval_routing(cases: list[dict], dump_path: str | None = None) -> dict:
     hallucinated = []
     off_leaked = []
     for case in cases:
-        out = route({"question": case["question"]})
+        try:
+            out = route({"question": case["question"]})
+        except Exception as exc:
+            # One bad response must not destroy a 218-case paid run. How it is
+            # counted depends on what failed, and the two cases are opposites:
+            #
+            #   * A malformed model response IS a routing error. Scored as wrong,
+            #     because dropping it would quietly raise accuracy by removing
+            #     the cases the router handled worst.
+            #   * A billing or rate-limit failure says nothing about the router.
+            #     Scoring it as wrong reports an outage as a quality regression —
+            #     measured: credits ran out 46 cases into a 180-case run and the
+            #     harness printed "routing accuracy 25.6%", which reads as a
+            #     catastrophic regression and is a statement about a balance.
+            #
+            # So infrastructure failures leave the denominator entirely and the
+            # run is reported as incomplete instead.
+            infra = _is_infrastructure(exc)
+            (unreachable if infra else failed).append(
+                (case["id"], type(exc).__name__, str(exc)[:200])
+            )
+            dump.write({"id": case["id"], "question": case["question"],
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "error_kind": "infrastructure" if infra else "model"})
+            continue
         got = out["intent"]
         confusion[(case["intent"], got)] += 1
         correct += got == case["intent"]
@@ -318,21 +392,30 @@ def eval_routing(cases: list[dict], dump_path: str | None = None) -> dict:
         if cls in ("wrong", "hallucinated"):
             proto_wrong.append((case["id"], sorted(want_p), sorted(got_p), cls, case["question"]))
 
-        records.append({
+        dump.write({
             "id": case["id"], "question": case["question"],
             "want_intent": case["intent"], "got_intent": got,
             "want_protocols": sorted(want_p), "got_protocols": sorted(got_p),
             "protocol_class": cls, "category": case.get("category"),
+            "query_type": out.get("query_type"),
+            "router_errors": out.get("errors") or [],
         })
 
-    if dump_path:
-        with open(dump_path, "w", encoding="utf-8") as fh:
-            for r in records:
-                fh.write(json.dumps(r, ensure_ascii=False) + "\n")
-        console.print(f"[dim]per-case decisions -> {dump_path}[/dim]")
+    dump.close("per-case decisions")
+
+    # Cases we never got an answer for leave the denominator. Reporting them as
+    # routing errors would state an outage as a quality regression.
+    scored = len(cases) - len(unreachable)
+    if failed:
+        console.print(
+            f"[bold red]{len(failed)} case(s) returned a malformed response and "
+            f"are scored as wrong[/bold red]"
+        )
+        for cid, kind, msg in failed[:5]:
+            console.print(f"  [red]{cid}: {kind} — {msg}[/red]")
 
     proto_exact = proto_class["exact"]
-    proto_scored = len(cases)
+    proto_scored = scored
 
     labels = ["docs", "live_data", "account_action", "out_of_scope"]
     table = Table("expected \\ got", *labels, title="routing confusion")
@@ -344,8 +427,25 @@ def eval_routing(cases: list[dict], dump_path: str | None = None) -> dict:
         ])
     console.print(table)
 
-    acc = correct / len(cases)
-    console.print(f"[bold]routing accuracy: {correct}/{len(cases)} = {acc:.1%}[/bold]")
+    acc = correct / scored if scored else 0.0
+    if unreachable:
+        # The run did not happen. An accuracy over a partial denominator invites
+        # exactly the misreading this whole codebase is built to prevent —
+        # "we looked and the router is bad" when the truth is "we stopped
+        # looking". No headline number is printed at all.
+        console.print(
+            f"[bold red]INCOMPLETE RUN — {len(unreachable)}/{len(cases)} cases never "
+            f"reached the model.[/bold red]"
+        )
+        console.print(f"  [red]first failure: {unreachable[0][0]} — {unreachable[0][2]}[/red]")
+        console.print(
+            f"[yellow]{correct}/{scored} of the cases that DID get a response were "
+            f"correct, but they are the first {scored} of the file and cover only "
+            f"{len({c['intent'] for c in cases[:scored]})} of 4 intent classes. "
+            f"This is not a routing measurement — re-run it complete.[/yellow]"
+        )
+    else:
+        console.print(f"[bold]routing accuracy: {correct}/{scored} = {acc:.1%}[/bold]")
 
     # The asymmetry that matters: an account_action leaking into docs means the
     # agent improvises about someone's funds instead of fetching a human.
@@ -407,11 +507,20 @@ def eval_routing(cases: list[dict], dump_path: str | None = None) -> dict:
 # --- answers (needs API key, costs money) -------------------------------
 
 
-def eval_answers(cases: list[dict], limit: int = 20) -> dict:
+def eval_answers(cases: list[dict], limit: int = 20, dump_path: str | None = None) -> dict:
+    import os
+
     from eval.judge import faithfulness, quality
     from src.graph.nodes import _format_context
     from src.retrieval.retriever import hybrid_search
     from src.graph.nodes import generate
+
+    # Same idiom as the routing dump, and for the same reason: this harness costs
+    # real money per case, so the per-case record has to outlive the run. Without
+    # it the only way to look again at what an answer said is to buy it twice.
+    dump_path = dump_path or os.environ.get("ANSWERS_DUMP")
+    dump = _Dump(dump_path)
+    failed = []
 
     cases = [c for c in cases if c.get("expect_source")][:limit]
     rows, faith_scores, quality_scores = [], [], []
@@ -430,11 +539,30 @@ def eval_answers(cases: list[dict], limit: int = 20) -> dict:
         faith_scores.append(f)
         quality_scores.append((q.helpful, q.cited, q.safe))
         rows.append((case["id"], f, q))
+        dump.write({
+            "id": case["id"],
+            "question": case["question"],
+            "protocols": case.get("protocols") or [],
+            "expect_source": case.get("expect_source"),
+            "answer": out["answer"],
+            # `source`, not `url` — the chunk metadata key. Getting this wrong
+            # silently dumps a list of nulls, which is only visible if someone
+            # reads the file the run was paid for.
+            "sources": [d.metadata.get("source") for d in docs],
+            "headings": [d.metadata.get("heading") for d in docs],
+            "faithfulness": f,
+            "faithfulness_verdicts": _verdicts,
+            "helpful": q.helpful,
+            "cited": q.cited,
+            "safe": q.safe,
+        })
 
     table = Table("id", "faithful", "helpful", "cited", "safe", title="answer quality")
     for cid, f, q in rows:
         table.add_row(cid, f"{f:.2f}", str(q.helpful), str(q.cited), str(q.safe))
     console.print(table)
+
+    dump.close("per-case answers")
 
     n = len(rows)
     mean_faith = sum(faith_scores) / n
@@ -469,6 +597,10 @@ def main() -> None:
     for flag in _FLAGS:
         p.add_argument(f"--{flag}", action="store_true")
     p.add_argument("--k", type=int, default=5)
+    # Paid-harness controls. `--limit` bounds spend on --answers; `--dump` keeps
+    # the per-case record of a run that cost money to produce.
+    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--dump", default=None)
     args = p.parse_args()
 
     if not any(vars(args)[f] for f in _FLAGS):
@@ -505,10 +637,10 @@ def main() -> None:
         eval_agent_selection()
     if wanted("routing"):
         console.rule("routing")
-        eval_routing(cases)
+        eval_routing(cases, dump_path=args.dump)
     if wanted("answers"):
         console.rule("answers")
-        eval_answers(cases)
+        eval_answers(cases, limit=args.limit, dump_path=args.dump)
 
 
 if __name__ == "__main__":
