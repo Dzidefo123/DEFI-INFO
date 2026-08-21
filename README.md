@@ -229,6 +229,27 @@ Detection latency: 1 reading at a sustained 4.0×, 1.8× or 1.4× shift.
 
 > Thresholds are uncalibrated, and the code says so wherever severity is shown.
 
+### Invariants — where the statistics were blind
+
+Two metrics carry properties fixed by protocol design rather than learned from
+history. Both were verified against the case that motivated them:
+
+| | before | after |
+|---|---|---|
+| Wrapper backing holds at 1.0 (live, 9 readings) | `unknown` | `normal` |
+| Wrapper backing breaks to 0.97 | `unknown`, not an anomaly | **`critical`** |
+| Block height steps back 30 blocks | rate reported as **10** — a healthy chain | **`critical`** |
+
+The first two are the same blind spot from either side: a series constant at its
+target has no spread, so no z-score exists, and the engine reports `unknown`
+however far it later moves. The third is a distinct bug found while generalising
+the idea — negative increments are filtered so a reversal cannot corrupt a
+baseline, but filtering the *current* reading promoted the previous increment
+into its place, so a reorg read as normal.
+
+Calibration against real backing failures found the thresholds barely matter and
+[detection latency is the binding constraint](#calibrating-the-bands--and-what-calibration-actually-showed).
+
 ### Evidence independence — measured on a live run
 
 > **2 claims · 5 pieces of evidence · 5 distinct sources → 1 independent line of
@@ -265,8 +286,21 @@ are spread out, so it *broadens*.
 
 ### Test suite
 
-**875 tests, 4.2 seconds, no API calls.** Every model-dependent step is injected,
-so the full pipeline — including both agent paths — is exercised offline.
+**1,000 tests, ~4 seconds, no API calls.** Every model-dependent step is
+injected, so the full pipeline — including both agent paths — is exercised
+offline.
+
+Two of those are not example tests, and they exist because example tests missed
+things:
+
+- **Property assertions over the confidence model** (`test_confidence_properties.py`)
+  search the whole scoring space rather than points inside it — exhaustive across
+  claim kinds, tiers and verification statuses, gridded across the four factors.
+  See [the mechanism that diagnosis was missing](#the-mechanism-that-diagnosis-was-missing).
+- **A clock-shift audit.** Fixture timestamps are relative to `utcnow()`, and the
+  suite is run under clocks moved 400 and 3,650 days forward. Confidence decays
+  against wall-clock time, so a hardcoded "now" is a test that ages into failure —
+  which happened, twice, with fuses of one day and two years.
 
 ---
 
@@ -903,9 +937,14 @@ why the default stays at 5.
 - **No cache.** Traffic is head-heavy — a semantic cache on the top ~100 questions
   would likely cut cost per conversation substantially before any model-tier
   change is needed.
-- **Guardrail regexes are English-only.** The same seed-phrase attack in
-  Portuguese sails straight through to the router. This is the most important gap
-  in the design as it stands.
+- **Guardrail regexes are English-only, and now fail closed rather than open.**
+  The same seed-phrase attack in Portuguese used to sail straight through to the
+  router; it is now refused, because a language the patterns cannot read is
+  treated as unchecked rather than as clear. That converts the gap from a silent
+  safety hole into a visible product limitation — the right trade at this size,
+  and the wrong one at scale in a market that is not English-speaking. Serving
+  those users properly means native patterns per language, and the language check
+  is what makes adding them incremental instead of load-bearing.
 - **SQLite checkpointing pins every conversation thread to one box.** Postgres is
   the obvious next step behind a load balancer.
 - **Investigations are synchronous.** Making this a service needs background
@@ -928,7 +967,9 @@ full rather than deferring to it:
 src/
   protocols.py             the whitelist: registry, domain/path rules, copy helpers
   config.py                pydantic-settings; retrieval funnel + model ids
-  guardrails/rules.py      deterministic pre-router gate (+ failure-cost rationale)
+  guardrails/
+    rules.py               deterministic pre-router gate (+ failure-cost rationale)
+    language.py            decides language before the English patterns are trusted
   ingest/
     sources.py             discover pages (llms.txt / sitemap / gitbook)
     http.py  robots.py     shared client; robots.txt gate
@@ -945,7 +986,9 @@ src/
     graph.py               evidence graph, traversal, independence analysis
   risk/
     statistics.py          baselines, z-scores, robust scores, change points
-    signals.py             severity bands, risk signals, deterministic explanation
+    signals.py             risk signals, deterministic explanation, verdict merge
+    severity.py            the one ordered scale both paths score onto
+    invariants.py          properties checked against design, not history
   intelligence/
     query_types.py         the depth axis and its safety clamp
     plan.py                deterministic investigation planning
@@ -958,8 +1001,9 @@ src/
     rpc.py                 provider-agnostic JSON-RPC, shape-validated, batched
     abi.py                 minimal encode/decode for standard read functions
     contracts.py           contract whitelist + on-chain self-verification
-    features.py            metric registry, gauge/cumulative, block classification
+    features.py            metric registry, gauge/cumulative, declared invariants
     store.py               SQLite feature store; prior_history excludes the point
+    collectors.py          per-protocol readers; shape-validated, never status-coded
     collect.py             scheduled collection (--dry-run, --coverage)
   security/
     incidents.py           four classifications that must never be merged
@@ -978,10 +1022,11 @@ eval/
                            6 vocabulary-collision pairs
   verification.jsonl       18 labelled cases across 15 failure modes
   intelligence.py          verification, anomaly tiers, agent selection
+  wrapper_backing.jsonl    observed backing failures, every figure cited
+  calibration.py           scores the invariant bands against them
   judge.py                 RAGAS-style faithfulness
   run_eval.py              5 free harnesses + 2 paid
-tests/                     875 tests, no API calls
-docs/                      build log and project summary
+tests/                     1,000 tests, no API calls
 ```
 
 ---
@@ -1242,10 +1287,30 @@ added that a specific requirement did not force.
   router and the golden intents share an author.
 - **Risk thresholds and verification cases are synthetic.** Real labelled
   incidents would replace both generators, and the thresholds are uncalibrated
-  wherever severity is shown.
+  wherever severity is shown. The invariant bands are the one exception, and
+  calibrating them mostly established that they do not matter: every observed
+  backing failure lands far inside `critical`, so the bands are documented as
+  economic reasoning rather than presented as fitted.
 - **Routing has not been re-measured** since the depth axis was added to the
   router's output. Intent accuracy may have moved.
-- **Guardrails are English-only.** The largest remaining gap in the design.
+- **The language gate detects positively, so its coverage is not complete.**
+  Refusal requires evidence of another language, never merely the absence of
+  English — that asymmetry is what keeps `gm` and bare addresses working, and it
+  means a short non-English question carrying fewer than two markers still
+  reaches the router. Incident vocabulary is weighted to decide on its own, so
+  terse reports like `fui roubado` are caught; the general case is not closed.
+- **The translated refusals have not been proofread by a native speaker.** They
+  are deliberately short for that reason, and every sentence in them is one the
+  codebase already asserts in English.
+- **Only two invariants are declared.** The mechanism is general — `EQUALS`,
+  `AT_LEAST` and `AT_MOST` are all implemented and tested — but nothing else in
+  the registry currently has a property fixed by design rather than by history.
+  Oracle-versus-market deviation was considered and rejected: it needs a
+  threshold no evidence available here justifies, and inventing one would
+  contradict the calibration finding above.
+- **The contract registry holds one entry.** Widening it needs citable addresses
+  that pass on-chain self-verification, which is the gate that makes an address
+  admissible in the first place.
 - **Three protocols is a real test of collision, not of scale.** All three publish
   `llms.txt` in the same GitBook dialect, so ingestion has never faced a
   differently-shaped site, and no two *independent* protocols yet share a term the
@@ -1298,19 +1363,41 @@ A plausible sequence:
    alert" is smaller than it looks. That is the shift from *"ask what happened"*
    to *"the system noticed and looked into it"*.
 
-### Two problems to solve before that, not during it
+### Two problems that were blocking that, and how they resolved
 
-**The flagship question has the least data behind it.** "Is this protocol showing
-unusual activity?" is what the product is *for*, and today Ethena has no on-chain
-source, the security registry is empty by design, and the feature store is days
-old. An investigation into a protocol returns an honest *"partial investigation —
-nothing was measured"*. That is correct behaviour and a poor demonstration.
-Either widen the data or narrow the product to documentary research, where the
-evidence explorer works today.
+Both were stated here as open. Both turned out to have answers already sitting in
+the codebase, which is worth recording because in each case the framing was what
+had been wrong.
 
-**Honest incompleteness is a user-experience problem, not just a copy problem.**
-The system's defining quality is that it says "I don't know" precisely. In a
-terminal that reads as rigour. In an interface, a prominent *"nothing was
-measured"* may read as broken. Making a coverage gap feel like discipline rather
-than failure is a genuine design question, and "make coverage visible" does not
-answer it.
+**The flagship question had the least data behind it.** "Is this protocol showing
+unusual activity?" is what the product is *for*, and the choice looked like:
+widen the data, or narrow the product. It was a false choice. **An invariant is a
+finding at n=1** — the correct value is known in advance, so a deviation is
+meaningful the first time it is seen. No baseline, no eight readings, no
+calibrated threshold. Widening the *registry* buys a demonstrable answer today
+where widening the *series* buys one in eight days with thresholds already
+labelled uncalibrated. Invariants are also the claim type the reliability matrix
+scores highest: `STATE`, chain tier, 1.00.
+
+The remaining work is therefore finding more properties that are fixed by design,
+not collecting more history. Two are declared; the honest constraint on the third
+is citable contract addresses, not machinery.
+
+**Honest incompleteness looked like a UX problem with no obvious solution.** It
+had one, and the plan was already the affordance. *"Nothing was measured"* reads
+as broken because it appears as an absence in a slot that expected a value. The
+plan is recorded before execution, so rendering it as a checklist that fills in
+turns an uninvestigated stage into a visibly unticked step. Same information,
+opposite affect: an unrun stage looks like scope rather than failure. Nobody
+thinks a test suite is broken because it reports skipped tests.
+
+### What is actually left
+
+- **The interface**, unchanged from the sequence above — it remains the
+  highest-value next step, and both blockers are now cleared.
+- **More invariants**, gated on citable addresses rather than on design work.
+- **The paid evals**: `--answers` faithfulness has never run, and routing is
+  stale since the depth axis was added.
+- **Native guardrail patterns per language**, if this is to serve a
+  non-English-speaking market properly. The language check makes that additive
+  instead of a rewrite.
