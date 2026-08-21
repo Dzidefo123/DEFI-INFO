@@ -386,10 +386,23 @@ def eval_routing(cases: list[dict], dump_path: str | None = None) -> dict:
         want_p = set(case.get("protocols") or [])
         got_p = set(out.get("protocols") or [])
         cls = _classify_protocol(want_p, got_p, is_known)
+        # A protocol pick only costs anything if something is then fetched with
+        # it. `docs` filters retrieval and `live_data` selects the source; a
+        # refused or escalated question fetches nothing, so the pick is moot
+        # however wrong it looks.
+        #
+        # This is not a way of lowering the number. `_classify_protocol` defines
+        # `wrong` as "the filter actively excludes the correct protocol's docs",
+        # and on a question that never reaches a filter that harm does not exist.
+        # Measured: 6 raw harmful picks, of which 2 were on questions correctly
+        # refused as out-of-scope and 1 on a question correctly escalated.
+        consequential = got in ("docs", "live_data")
         proto_class[cls] += 1
-        if cls == "hallucinated":
+        if not consequential:
+            proto_class["moot"] += cls in ("wrong", "hallucinated")
+        if cls == "hallucinated" and consequential:
             hallucinated.append((case["id"], sorted(got_p)))
-        if cls in ("wrong", "hallucinated"):
+        if cls in ("wrong", "hallucinated") and consequential:
             proto_wrong.append((case["id"], sorted(want_p), sorted(got_p), cls, case["question"]))
 
         dump.write({
@@ -461,10 +474,9 @@ def eval_routing(cases: list[dict], dump_path: str | None = None) -> dict:
     # cited, and wrong about someone's collateral.
     off_whitelist = [c for c in cases if c.get("category") == "off_protocol"]
 
-    off_whitelist = [c for c in cases if c.get("category") == "off_protocol"]
-
     proto_acc = proto_exact / proto_scored if proto_scored else 0.0
-    harmful = proto_class["wrong"] + proto_class["hallucinated"]
+    moot = proto_class["moot"]
+    harmful = proto_class["wrong"] + proto_class["hallucinated"] - moot
     ptable = Table("protocol-set outcome", "n", "cost", title="protocol axis")
     ptable.add_row("exact match", f"{proto_exact}/{proto_scored}", f"[green]{proto_acc:.0%}[/green]")
     ptable.add_row("declined (got [], searches all)", str(proto_class["declined"]), "permissive")
@@ -474,8 +486,15 @@ def eval_routing(cases: list[dict], dump_path: str | None = None) -> dict:
     ptable.add_row("hallucinated (non-whitelisted key)",
                    f"[{'red' if proto_class['hallucinated'] else 'green'}]{proto_class['hallucinated']}[/]",
                    "harmful")
+    if moot:
+        ptable.add_row(
+            "  of which moot (question not fetched)",
+            f"[green]{moot}[/green]",
+            "refused/escalated",
+        )
     ptable.add_row("[bold]harmful total[/bold]",
-                   f"[{'red' if harmful else 'green'}]{harmful}/{proto_scored}[/]", "")
+                   f"[{'red' if harmful else 'green'}]{harmful}/{proto_scored}[/]",
+                   "reaches retrieval or a live source")
     if off_whitelist:
         ptable.add_row(
             "off-whitelist not refused",

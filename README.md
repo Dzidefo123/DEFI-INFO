@@ -174,29 +174,98 @@ context purity, which `recall@k` cannot see — that metric asks whether the rig
 page is in the top-k, not whether a rival protocol's page is sitting next to it.
 That adjacency is what produces a confidently wrong-protocol answer.
 
-### Routing — 180 cases, live
+### Routing — 180 cases, live (2026-08-21)
 
 | | |
 |---|---:|
-| Intent agreement | **157/180 = 87%** |
+| Intent agreement | **157/180 = 87.2%** |
 | Account actions routed to a non-escalating branch | **0** |
-| Harmful protocol picks | 2/180 |
 | Invented protocol keys | **0** |
 | Off-whitelist questions not refused | **0/9** |
+| Harmful protocol picks (question actually fetches) | 3/180 |
+| Protocol set exact | 103/180 = 57% |
 
-The router's failure mode is *under-commitment* — it escalates when unsure and
-declines to filter on generic phrasing. It almost never picks the wrong protocol
-and never invents one. Reported as a confusion matrix rather than a scalar,
-because the errors are asymmetric.
+| expected \ got | docs | live_data | account_action | out_of_scope |
+|---|---:|---:|---:|---:|
+| **docs** | 109 | · | 19 | 3 |
+| **live_data** | · | 18 | · | 1 |
+| **account_action** | · | · | 10 | · |
+| **out_of_scope** | · | · | · | 20 |
 
-> Measured before the query-type axis was added. Whether intent accuracy held is
-> still unmeasured: the re-run attempted on 2026-08-21 exhausted the API credit
-> balance after 46 of 180 cases, all of them from the `docs` class. Those 46 were
-> routed correctly and 21/46 matched the protocol set exactly, but a partial pass
-> over one intent class out of four is not a routing result and is not reported
-> as one. The two harmful protocol picks it did surface are the same pair listed
-> above — `How do I stake HYPE?` read as HyperEVM, `How long does unstaking
-> take?` read as Ethena — which is at least consistent with the older run.
+**Intent accuracy held after the depth axis was added** — the previous
+measurement was 157/180 on the two-axis router, and asking the same call to
+decide a third axis cost nothing measurable. That question had been open and
+flagged in this README since the axis shipped.
+
+**19 of the 23 errors are one cell: `docs → account_action`.** The failure mode
+is over-escalation, which is the safe direction — a documentation question sent
+to a human rather than a funds question answered by a model. It is not free,
+though: roughly one question in ten is escalated needlessly, and that is a
+staffing cost rather than a rounding error.
+
+**The depth axis, measured for the first time: 179 `cx`, 1 `risk_assessment`.**
+Read carefully — the golden set was built for the CX agent and contains almost
+nothing an investigation would suit, so this measures the axis on input that
+cannot exercise it. It says the axis is inert on CX traffic, which is what it was
+designed to be. It says nothing yet about whether the router recognises an
+investigation when one arrives, and a golden set that could answer that does not
+exist.
+
+**One case, `eth-010`, returned `query_type='docs'`** — an intent value in the
+depth field, the exact malformation that crashed the previous run. It was coerced
+to `cx` and recorded. At one in 180, roughly 0.6% of turns would have died on it.
+
+> The harmful-protocol count is **3**, not the 6 the harness first reported.
+> Three of the six were on questions that fetch nothing — two correctly refused
+> as out-of-scope, one correctly escalated — and `_classify_protocol` defines
+> `wrong` as "the filter actively excludes the correct protocol's docs", a harm
+> that cannot occur where no filter runs. The classifier is now scoped to cases
+> that reach retrieval or a live source. It is still up from the 2 measured
+> before, and all three are Hyperliquid questions answered from a sibling
+> protocol: `How do I stake HYPE?` and `How do priority fees work?` read as
+> HyperEVM, `How long does unstaking take?` read as Ethena.
+
+### Answers — 20 documentation cases, judged (2026-08-21)
+
+The harness this README had never run to completion. Each case takes the
+production path — the router's protocol decision reaches retrieval — so the judge
+scores an answer built from the context the agent would actually have had.
+
+| | |
+|---|---:|
+| Faithfulness (claim-level, against retrieved context) | **0.98** |
+| Helpful | 4.8/5 |
+| Cited | 4.9/5 |
+| Safe | 4.8/5 |
+
+19 of 20 answers were fully faithful. The exception is the interesting one.
+
+**`doc-009` scored 0.67, and it is a retrieval failure wearing an answer's
+clothes.** "What does IOC mean?" is one of the four known misses at k=5 — it
+ranks the API endpoint page above `trading/order-types`, so the generator never
+received the page that defines the term. Two of its three claims were grounded in
+what it did get. The third:
+
+> "IOC typically stands for Immediate-Or-Cancel."
+
+which is **true in the world and absent from the retrieved excerpts**. The model
+filled the gap from its own parameters, and the faithfulness judge caught it.
+That is precisely the failure this system exists to catch, caught: an answer that
+is correct, fluent, and not supported by the sources it cites. It is also the
+clearest evidence for why retrieval is treated here as the ceiling on answer
+quality rather than one component among several — the miss did not stay in
+retrieval, it propagated into an ungrounded claim.
+
+> **The `safe` sub-score is not measuring what it says, and should be read with
+> that in mind.** Its rubric asks whether an answer avoids trading advice *and*
+> avoids inventing mechanics or numbers — but `quality()` is passed only the
+> question and the answer, never the retrieved context, so it cannot check
+> invention and is judging it from tone. `doc-008` is the proof: faithfulness
+> 1.00 with all sixteen claims individually verified against source, and `safe`
+> 3, on a purely descriptive answer about order types whose specific figures were
+> all grounded. A detailed well-sourced answer reads as riskier to it than a
+> vague one. Faithfulness already covers invention properly, at claim level and
+> with evidence; the advice half of `safe` is the part worth keeping.
 
 ### Verification — 18 labelled cases, 15 failure modes
 
@@ -1255,6 +1324,31 @@ partial result is labelled as not a measurement. Paid harnesses also write their
 dumps incrementally — the first crashed run lost every call it had already paid
 for, because the dump was written only at the end, which is exactly what a paid
 run may never reach.
+
+Both evals were re-run to completion once credits were added, and the results are
+above. The router crash reproduced on live data exactly once — case `eth-010`
+returned `query_type='docs'` — so roughly 0.6% of turns would have died on it.
+
+**The protocol axis counted harm on questions that fetch nothing.** The completed
+run reported 6 harmful protocol picks. Three were on questions the router had
+correctly refused as out-of-scope or escalated as account actions, where no
+retrieval and no live call ever happens. `_classify_protocol` defines `wrong` as
+"the filter actively excludes the correct protocol's docs" — a harm that cannot
+occur where no filter runs. Scoped to cases that reach retrieval or a live
+source, the count is **3/180**. Still up from the 2 measured before the depth
+axis, and reported as up rather than as the scoping alone.
+
+**The `safe` sub-score was asking a question its judge could not see.** Its
+rubric covered both "avoids trading advice" and "avoids inventing mechanics or
+numbers", but `quality()` receives only the question and the answer — never the
+retrieved context — so it had nothing to check invention against and was scoring
+tone. `doc-008` scored `safe` 3 on an answer whose sixteen claims had each been
+individually verified against source; a precise, figure-heavy answer reads as
+riskier to it than a vague one. Invention is already measured by `faithfulness`,
+per claim and with the evidence quoted, so the weaker measurement was
+contradicting the stronger one. `safe` now covers only the advice half. The 4.8
+reported above was produced under the old rubric and should be read as the
+conflated figure it is.
 Fusion's own MRR *fell* on the clean index, because the orphans were duplicate
 copies of correct pages padding its top ranks for free.
 
@@ -1322,22 +1416,23 @@ added that a specific requirement did not force.
 
 ## Honest limitations
 
-- **Both paid evals were attempted on 2026-08-21 and neither completed.** The
-  API credit balance ran out 46 cases into the 180-case routing run, and the
-  `--answers` run died on the same error before scoring a single case. What the
-  attempt did produce was worth more than the numbers would have been: an
-  unhandled crash in `route` and a harness that reported the outage as a model
-  regression, both in [Corrections](#corrections). The figures below are still
-  the pre-depth-axis ones.
-- **Answer faithfulness remains the one node un-eval'd at scale.** `grade`,
-  `generate` and `verify` have been exercised interactively against a live key,
-  and a single-case smoke test scored faithfulness 1.00, helpful 5/5, cited 5/5,
-  safe 4/5 — one case, which is a plumbing check and not a result. The aggregate
-  `--answers` judge has never run to completion.
+- **Answers are judged on 20 of 131 documentation cases.** Enough to establish
+  that the generator is not routinely ungrounded; not enough to characterise the
+  tail. The one imperfect case is a retrieval miss propagating, which is the
+  expected shape but a sample of one.
+- **The answer judges share an author and a model family with the thing they
+  judge.** Faithfulness is claim-level and quotes its evidence, which constrains
+  it; `helpful` and `safe` are holistic 1-5 opinions and should be read as
+  smoke detectors rather than measurements.
 - **Routing accuracy is agreement-with-my-labels, not ground truth** — the router
-  and the golden intents share an author. It also has not been re-measured since
-  the depth axis was added, and the one attempt to do so is what surfaced the
-  crash above.
+  and the golden intents share an author.
+- **The depth axis has been measured only on input that cannot exercise it.** The
+  golden set predates the investigation path, so `179 cx / 1 risk_assessment`
+  shows the axis is inert on CX traffic and says nothing about whether the router
+  recognises an investigation when one arrives. A golden set that could answer
+  that does not exist yet, and building one means labelling questions whose right
+  answer is "this needs an investigation" — which is the same
+  agreement-with-my-labels problem one level up.
 - **Risk thresholds and verification cases are synthetic.** Real labelled
   incidents would replace both generators, and the thresholds are uncalibrated
   wherever severity is shown. The invariant bands are the one exception, and
