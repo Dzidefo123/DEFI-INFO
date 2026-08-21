@@ -208,12 +208,30 @@ anything that *"touches a specific user's funds, positions, or account"* — whi
 they literally do. The model was following instructions. See
 [Corrections](#corrections) for the fix and what it cost.
 
-**Six errors remain**, and half are arguable rather than wrong: `How do I export
-my email wallet?` and `My staking and trading account won't link` still escalate,
-and exporting a wallet is genuinely closer to account access than to
-documentation. The other three are unrelated — two live-data questions about
-tickers (`DOGE`, `ATOM`) read as out-of-scope, which is an asset-scope confusion
-rather than an intent one.
+**Six errors remained after that fix**, and two of them had a separate cause
+worth its own correction: `What is DOGE funding paying today?` and `current price
+of ATOM` were refused as out-of-scope. The prompt told the router to refuse "a
+crypto protocol NOT in the list", and it read an unfamiliar *ticker* as an
+unfamiliar *protocol*. Both assets are listed by a whitelisted venue and the live
+tool serves them — verified directly before touching the router, since routing a
+question to a tool that cannot answer it trades a wrong refusal for an error.
+
+The prompt now separates the two: a competing **venue** puts a question out of
+scope, an **asset** does not. `What's the mark price of ETH on dYdX right now?`
+is still refused, and it is refused because of dYdX rather than because of ETH.
+
+> **The 174/180 above predates that change.** It was measured on the previous
+> prompt, and re-running the full set costs real money against a low balance, so
+> it has not been re-measured. What has been checked is a nine-case targeted set
+> — the two fixed cases plus seven regression controls covering non-whitelisted
+> venues, non-whitelisted protocols, investment advice, and one case of each
+> intent — which passed 9/9. If nothing else moved, the full figure would be
+> 176/180; that is arithmetic, not a measurement, and is not published as one.
+
+The four errors left after both fixes are arguable rather than plainly wrong.
+`How do I export my email wallet?` and `My staking and trading account won't
+link` still escalate, and exporting a wallet is genuinely closer to account
+access than to documentation.
 
 **The depth axis: 179 `cx`, 1 `risk_assessment`.** Read carefully — the golden
 set was built for the CX agent and contains almost nothing an investigation would

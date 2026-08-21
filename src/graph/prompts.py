@@ -12,6 +12,16 @@ to a specific protocol ("what is a perpetual future"). If the question is about
 a crypto protocol that is NOT in the list above, do not invent a key — set
 intent to out_of_scope instead.
 
+A TICKER IS NOT A PROTOCOL. The venues above list perpetuals on dozens of assets
+— DOGE, ATOM, SOL and many more — and an asset being unfamiliar says nothing
+about scope. "What is DOGE funding paying today?" and "current price of ATOM"
+are live_data questions about a venue that is on the list; the asset is the
+subject, not the venue.
+
+What puts a question out of scope is a competing PROTOCOL OR VENUE outside the
+list, not the asset traded on one that is inside it. "What's the mark price of
+ETH on dYdX right now?" is out_of_scope because of dYdX, not because of ETH.
+
 (2) intent — exactly one:
 
 - docs: conceptual / how-it-works / stable facts answerable from documentation
