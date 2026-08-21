@@ -366,3 +366,85 @@ def test_a_signal_with_no_scores_renders_without_an_empty_clause():
     signal = assess_metric("m", 1.0, FLAT)
     text = explain(signal)
     assert ". ." not in text and "  " not in text
+
+
+# --- the monotonic counter invariant ------------------------------------
+
+
+def _block_series(current, history=(100, 110, 120, 130, 140, 150, 160, 170, 180)):
+    from src.blockchain.features import get_spec, prepare_for_scoring
+
+    spec = get_spec("hyperevm", "latest_block")
+    rate, baseline = prepare_for_scoring(spec, list(history), current)
+    return assess_metric(spec.scored_as, rate, baseline, protocol="hyperevm",
+                         invariant=spec.invariant), rate
+
+
+def test_a_chain_going_backwards_used_to_read_as_perfectly_normal():
+    """The regression, as it was measured.
+
+    `rate_series` drops negative increments to keep a spurious reversal out of a
+    baseline. Applied to the CURRENT reading that does not leave a gap — it
+    promotes the previous increment into its place, so a nine-reading series
+    stepping back thirty blocks reported a rate of 10, identical to a healthy
+    chain. The statistical path cannot catch it either: the series has never
+    contained a negative, so there is no baseline for one to be unusual against.
+    """
+    from src.blockchain.features import rate_series
+
+    history = [100, 110, 120, 130, 140, 150, 160, 170, 180]
+    # The old computation, preserved to show what it produced.
+    old = rate_series([*history, 150])[-1]
+    assert old == 10, "the old path reported a healthy rate for a 30-block reorg"
+
+    signal, rate = _block_series(150)
+    assert rate == -30
+    assert signal.severity is Severity.CRITICAL
+    assert signal.anomaly
+
+
+def test_a_healthy_chain_and_a_stalled_one_are_both_within_the_invariant():
+    """Monotonicity says nothing about speed. A halt is the statistical path's
+    job — the rate collapses to zero against a baseline of ten — and the
+    invariant must not claim it."""
+    healthy, rate = _block_series(190)
+    assert rate == 10 and healthy.breach is None
+    stalled, rate = _block_series(180)
+    assert rate == 0 and stalled.breach is None
+
+
+def test_a_single_block_reversal_is_still_a_finding():
+    """One block backwards is a reorg. There is no threshold to argue about:
+    under the protocol's rules the value is impossible, not unusual."""
+    signal, rate = _block_series(179)
+    assert rate == -1
+    assert signal.anomaly
+
+
+def test_the_reversal_is_reported_in_blocks_not_percent():
+    """A zero target makes deviation absolute. Rendering it relatively produced
+    "-30 blocks, 3000.0000% below target", which is arithmetically true and
+    meaningless."""
+    signal, _ = _block_series(150)
+    text = explain(signal)
+    assert "30 below target" in text
+    assert "%" not in text.split("Severity")[0]
+
+
+def test_one_prior_reading_still_yields_a_rate():
+    """`MIN_BASELINE_N` decides whether a rate can be SCORED. Refusing to derive
+    one at all would also withhold it from the invariant, which needs no
+    baseline."""
+    from src.blockchain.features import get_spec, prepare_for_scoring
+
+    spec = get_spec("hyperevm", "latest_block")
+    assert prepare_for_scoring(spec, [100], 110) == (10, [])
+
+
+def test_two_readings_are_enough_to_catch_a_reversal():
+    """The n=1 argument for invariants, at its limit: no baseline exists, and
+    the verdict is still CRITICAL."""
+    signal, rate = _block_series(90, history=(100,))
+    assert rate == -10
+    assert signal.baseline.n == 0
+    assert signal.severity is Severity.CRITICAL

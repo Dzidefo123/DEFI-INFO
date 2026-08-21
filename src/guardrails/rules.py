@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from src.guardrails import language
 from src.protocols import coverage_phrase
 
 # Never engage. Refuse + warn, regardless of how the request is framed
@@ -130,6 +131,94 @@ _INJECTION_TEMPLATE = (
     "risks, and integrations — and with live market and on-chain data."
 )
 
+# Refusals for languages the pattern gate does not cover.
+#
+# Two things have to be true of this copy. It must say plainly that the language
+# is the reason, so the user can retry in English rather than conclude the agent
+# is broken. And it must carry the two safety facts anyway — because the reason
+# we are here is that the patterns could not read the message, so it may well
+# have been a compromise report or a seed-phrase request, and answering "I only
+# speak English" to either of those would be the worst possible reply.
+#
+# Kept deliberately short. Copy in a language nobody on the project can proofread
+# should assert as little as possible, and every sentence here is one this
+# codebase already asserts in English elsewhere.
+_LANGUAGE_TEMPLATES: dict[str, str] = {
+    "portuguese": (
+        "**Só consigo responder em inglês.** Por favor, refaça sua pergunta em "
+        "inglês.\n\n"
+        "Duas coisas importantes, independentemente disso:\n\n"
+        "- **Nunca compartilhe sua frase de recuperação ou chave privada** com "
+        "ninguém, nem comigo. Quem pedir está tentando roubar seus fundos.\n"
+        "- Ninguém — nem o suporte — pode reverter uma transação ou mover fundos "
+        "da sua carteira.\n\n"
+        "Se você perdeu acesso ou fundos, procure o suporte oficial do protocolo."
+    ),
+    "spanish": (
+        "**Solo puedo responder en inglés.** Por favor, vuelve a hacer tu "
+        "pregunta en inglés.\n\n"
+        "Dos cosas importantes, en cualquier caso:\n\n"
+        "- **Nunca compartas tu frase de recuperación ni tu clave privada** con "
+        "nadie, tampoco conmigo. Quien te las pida quiere robarte.\n"
+        "- Nadie — tampoco el soporte — puede revertir una transacción ni mover "
+        "fondos de tu billetera.\n\n"
+        "Si perdiste acceso o fondos, contacta al soporte oficial del protocolo."
+    ),
+    "french": (
+        "**Je ne peux répondre qu'en anglais.** Merci de reformuler votre "
+        "question en anglais.\n\n"
+        "Deux points importants dans tous les cas :\n\n"
+        "- **Ne partagez jamais votre phrase de récupération ni votre clé "
+        "privée** avec qui que ce soit, moi compris. Quiconque les demande "
+        "cherche à voler vos fonds.\n"
+        "- Personne — pas même le support — ne peut annuler une transaction ni "
+        "déplacer les fonds de votre portefeuille.\n\n"
+        "En cas de perte d'accès ou de fonds, contactez le support officiel du "
+        "protocole."
+    ),
+    "german": (
+        "**Ich kann nur auf Englisch antworten.** Bitte stelle deine Frage "
+        "erneut auf Englisch.\n\n"
+        "Zwei wichtige Hinweise unabhängig davon:\n\n"
+        "- **Teile niemals deine Wiederherstellungsphrase oder deinen privaten "
+        "Schlüssel** mit irgendjemandem, auch nicht mit mir. Wer danach fragt, "
+        "will dein Guthaben stehlen.\n"
+        "- Niemand — auch der Support nicht — kann eine Transaktion rückgängig "
+        "machen oder Guthaben aus deiner Wallet bewegen.\n\n"
+        "Bei Verlust von Zugang oder Guthaben wende dich an den offiziellen "
+        "Support des Protokolls."
+    ),
+    "italian": (
+        "**Posso rispondere solo in inglese.** Per favore, riformula la tua "
+        "domanda in inglese.\n\n"
+        "Due cose importanti in ogni caso:\n\n"
+        "- **Non condividere mai la tua frase di recupero o la tua chiave "
+        "privata** con nessuno, nemmeno con me. Chi te le chiede vuole rubarti "
+        "i fondi.\n"
+        "- Nessuno — nemmeno l'assistenza — può annullare una transazione o "
+        "spostare fondi dal tuo portafoglio.\n\n"
+        "Se hai perso l'accesso o i fondi, contatta l'assistenza ufficiale del "
+        "protocollo."
+    ),
+}
+
+# For a language identified only by script, or one with no translated copy.
+_LANGUAGE_FALLBACK = (
+    "**I can only answer in English.** Please ask your question again in "
+    "English.\n\n"
+    "Two things that are true regardless:\n\n"
+    "- **Never share your recovery phrase or private key** with anyone, "
+    "including me. Anyone who asks for them is trying to steal your funds.\n"
+    "- No one — including support — can reverse a transaction or move funds "
+    "from your wallet.\n\n"
+    "If you have lost access or funds, contact the protocol's official support."
+)
+
+
+def unsupported_language_message(language: str | None) -> str:
+    """Refusal copy in the user's language where we have it, English otherwise."""
+    return _LANGUAGE_TEMPLATES.get(language or "", _LANGUAGE_FALLBACK)
+
 
 def _render(template: str) -> str:
     return template.format(coverage=coverage_phrase())
@@ -152,8 +241,29 @@ _RULES: list[tuple[re.Pattern, GuardrailHit]] = [
 
 
 def check(question: str) -> GuardrailHit | None:
-    """Return the first matching guardrail, or None to continue to the router."""
+    """Return the first matching guardrail, or None to continue to the router.
+
+    English patterns are tried first, and a match always wins. Only when none
+    matches does language enter the decision — because a message that trips
+    `SECRET_SOLICITATION` should get the seed-phrase warning whatever language
+    the rest of it is in, and the specific answer is always better than the
+    generic one.
+
+    When nothing matches and the text is positively identified as another
+    language, the turn is refused rather than passed to the router. The patterns
+    are English; outside English a clean pass through them means "not checked",
+    not "checked and safe", and forwarding on that basis would quietly retire the
+    one property this layer exists to provide.
+    """
     for pattern, hit in _RULES:
         if pattern.search(question):
             return hit
+
+    verdict = language.detect(question)
+    if not verdict.covered:
+        return GuardrailHit(
+            f"unsupported_language:{verdict.language}",
+            "refuse_language",
+            unsupported_language_message(verdict.language),
+        )
     return None

@@ -15,6 +15,12 @@ _GUARD_EXIT = {
     "refuse_secret": "guard_reply",
     "refuse_scope": "guard_reply",
     "refuse_injection": "guard_reply",
+    # Not `escalate`: a human support queue is presumably staffed in the
+    # languages the product serves, and this refusal fires on any unsupported
+    # language rather than on evidence of a problem. Routing every non-English
+    # question to a person would make the queue the fallback for a limitation
+    # the user can resolve themselves by asking again in English.
+    "refuse_language": "guard_reply",
     "escalate": "escalate",
 }
 

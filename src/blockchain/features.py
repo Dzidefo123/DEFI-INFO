@@ -160,6 +160,33 @@ _SPECS: tuple[MetricSpec, ...] = (
         subject_kind=SubjectKind.CHAIN,
         unit="count",
         description="Block height",
+        # Declared on the RATE, which is what a cumulative metric is scored
+        # through: blocks produced since the last reading may not be negative.
+        #
+        # This one needs no calibration at all, which is what makes it worth
+        # having. Block height decreasing is not unusual — under the protocol's
+        # rules it is impossible, so there is no threshold to argue about and no
+        # observation count to wait for. Two readings are enough.
+        #
+        # What it catches is real and currently invisible: a deep reorg, a forked
+        # node, or a provider serving state from behind the head. The statistical
+        # path cannot see any of them, because a negative increment has no
+        # baseline to be unusual against — the series has never contained one.
+        invariant=Invariant(
+            target=0.0,
+            bound=Bound.AT_LEAST,
+            # Absolute, not relative: the target is zero, so `deviation` returns
+            # the increment itself in blocks. One block backwards is one unit.
+            tolerance=0.0,
+            high_at=1.0,
+            critical_at=2.0,
+            rationale=(
+                "Block height is monotonic by construction. A decrease means the "
+                "chain reorganised, the node forked, or the provider answered "
+                "from behind the head — in every case the readings around it "
+                "describe a chain state that no longer exists."
+            ),
+        ),
     ),
     # Throughput is split by block type, and the split is not cosmetic.
     #
@@ -365,7 +392,21 @@ def prepare_for_scoring(
 
     if not history:
         return None
-    increments = rate_series([*history, current])
-    if not increments:
-        return None
-    return increments[-1], increments[:-1]
+
+    # The current increment is computed directly and kept even when negative.
+    # Passing it through `rate_series` would drop it — and dropping the LAST
+    # element does not leave a gap, it silently promotes the previous increment
+    # into its place. Measured: a nine-reading block-height series stepping
+    # backwards by thirty blocks reported a current rate of 10, identical to a
+    # healthy chain. A reorg, a forked node or a provider serving stale state all
+    # read as normal, which is the same catastrophic-miss shape as scoring a raw
+    # counter — surviving inside the fix written for it.
+    #
+    # The baseline still filters negatives, and that asymmetry is deliberate: a
+    # spurious negative in the HISTORY corrupts the baseline permanently, while a
+    # negative in the CURRENT reading is the event being reported.
+    # An empty baseline is allowed through: one prior reading is enough to
+    # derive a rate, and `MIN_BASELINE_N` downstream decides whether it can be
+    # scored. Refusing here would also block the invariant, which needs no
+    # baseline at all.
+    return current - history[-1], rate_series(history)

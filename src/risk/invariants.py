@@ -58,6 +58,26 @@ class Bound(str, Enum):
 # the number means, not statistics, so they are not the z-thresholds and must not
 # be read as them: a 1% shortfall on a supposedly exact 1:1 instrument is not
 # "unusual", it is a million dollars missing from every hundred million issued.
+#
+# Calibrated in `eval/calibration.py` against the backing failures with citable
+# figures. The honest result is that these boundaries do almost no work, and
+# saying so is worth more than presenting tuned-looking numbers:
+#
+#   * Every observed failure is catastrophic and none is gradual. Kelp's rsETH
+#     OFTAdapter went from fully backed to 0.19% of its prior reserve inside one
+#     block on 2026-04-18 — a forged message, not a drift, so no intermediate
+#     reading exists. The sustained aftermath was 26.46%.
+#   * ELEVATED and HIGH therefore contain zero observations. Moving HIGH anywhere
+#     between 0.01% and 10% would not change the verdict on a single real case.
+#   * So these are set from economics, not fitted to data. Below ~0.1% a
+#     shortfall costs less to ignore than a redemption round-trip costs in gas
+#     and slippage: nobody can act on it, and it reads as an accounting bug
+#     rather than a solvency event. Above 1% of a nine-figure wrapper the missing
+#     collateral is measured in millions.
+#
+# The one claim the evidence does support is the design's, not the thresholds':
+# any breach past dust is a finding, and what needs tuning is how often the
+# collector looks, not how far the needle must move.
 DEFAULT_TOLERANCE = 1e-9   # dust: integer division of two 18-decimal balances
 DEFAULT_HIGH_AT = 1e-3     # 0.1%
 DEFAULT_CRITICAL_AT = 1e-2  # 1%
@@ -87,6 +107,17 @@ class Invariant(BaseModel):
                 f"got {self.tolerance} / {self.high_at} / {self.critical_at}"
             )
         return self
+
+    @property
+    def is_absolute(self) -> bool:
+        """True when deviations are in the metric's own units, not relative.
+
+        Relative deviation from a zero target is undefined, so a "must be at
+        least zero" invariant is read in blocks, tokens or whatever it counts.
+        Rendering that as a percentage produced "-30 blocks, 3000% below target",
+        which is arithmetically defensible and means nothing to a reader.
+        """
+        return self.target == 0
 
     def deviation(self, value: float) -> float:
         """Signed deviation from the target, relative to it.
@@ -154,11 +185,18 @@ class Breach(BaseModel):
     def direction(self) -> str:
         return "below" if self.deviation < 0 else "above"
 
+    @property
+    def gap(self) -> str:
+        """The size of the miss, in whichever unit the invariant is stated in."""
+        if self.invariant.is_absolute:
+            return f"{abs(self.deviation):,.6g}"
+        return f"{abs(self.deviation):.4%}"
+
     def explain(self) -> str:
         inv = self.invariant
         return (
             f"{inv.describe()}, and reads {self.value:,.6g} — "
-            f"{abs(self.deviation):.4%} {self.direction} target. "
+            f"{self.gap} {self.direction} target. "
             f"{inv.rationale} "
             f"This is a broken invariant, not an unusual reading: it is judged "
             f"against the protocol's design rather than against recent history, "
@@ -177,8 +215,9 @@ def holding_note(invariant: Invariant, value: float) -> str:
     slack = invariant.deviation(value)
     if invariant.bound is not Bound.EQUALS and abs(slack) > invariant.tolerance:
         side = "below" if slack < 0 else "above"
+        gap = f"{abs(slack):,.6g}" if invariant.is_absolute else f"{abs(slack):.4%}"
         return (
             f"invariant holds ({invariant.describe()}, reads {value:,.6g}, "
-            f"{abs(slack):.4%} {side} target on the permitted side)"
+            f"{gap} {side} target on the permitted side)"
         )
     return f"invariant holds ({invariant.describe()}, reads {value:,.6g})"

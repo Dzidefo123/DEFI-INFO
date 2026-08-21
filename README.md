@@ -11,9 +11,12 @@ lookup cannot settle — runs a structured investigation that produces claims
 linked to evidence, scored by rule, and rejected when they do not hold up.
 
 Currently whitelisted: **Hyperliquid** (perpetuals), **HyperEVM** (its EVM chain),
-and **Ethena** (synthetic dollar). Adding a protocol is an entry in
-`src/protocols.py` and a re-index — nothing else in the codebase names a
-protocol, and a test enforces that.
+and **Ethena** (synthetic dollar). Adding a protocol *that publishes `llms.txt`*
+is an entry in `src/protocols.py` and a re-index — nothing else in the codebase
+names a protocol, and a test enforces that. The qualifier is load-bearing: the
+coupling claim is about the codebase, and ingestion is a separate problem where
+two of three discovery strategies are still unimplemented. See
+[honest limitations](#honest-limitations).
 
 ---
 
@@ -89,6 +92,33 @@ scammed on Aave, can you refund me?") — all four are caught by the correct rul
 Ten benign off-whitelist questions pass through untouched, so the gate is not
 merely matching on crypto vocabulary. Onboarding a protocol never means
 re-tuning the safety layer; the patterns never see a protocol name.
+
+**That result is a result about English.** The patterns are English regexes, so
+`minha carteira foi hackeada` matches none of them — and a no-match was forwarded
+to the router as though the message had been checked and cleared. Outside English
+the layer silently stopped doing the one thing it exists for.
+
+Translating thirty-eight patterns per language does not fix that; it relocates
+the same hole to language thirty-nine, and every hole looks identical from the
+inside. Instead a deterministic language check runs **after** the patterns and
+**before** the router: a matched pattern always wins, and text positively
+identified as another language is refused rather than forwarded. Detection is
+script, diacritics, and function words — no dependency and no model, because a
+statistical detector that is right 98% of the time puts a 2% probabilistic hole
+in a layer whose whole justification is that it is not probabilistic.
+
+Refusal requires positive evidence of *another* language, never merely the
+absence of English — `gm`, a bare contract address and `HYPE funding?` must all
+pass. The refusal carries the two safety facts anyway, in the detected language
+where copy exists, because the reason we are there is that the patterns could not
+read the message.
+
+Both published numbers are unchanged: **38/38 and 0/180**, now enforced as tests.
+One bug found in building it, which is the reason the marker lists are filtered
+against English vocabulary at import: `phrase` and `pirate` had been written into
+the French list, so `seed phrase help` — a textbook solicitation — was detected as
+French and would have received a language refusal *instead of* the seed-phrase
+warning. A marker shared with English is worse than a missing one.
 
 ### Retrieval — 131 documentation questions, k=5, protocol-filtered
 
@@ -677,6 +707,54 @@ other — they answer "is this unusual for this metric" and "is this metric wron
 A report says which one fired, because they warrant different responses and a
 z-score is evidence for neither.
 
+Two invariants are declared today:
+
+| metric | property | what it catches |
+|---|---|---|
+| `wrapper_backing_ratio` | ≥ 1.0 | tokens issued against collateral that is not there |
+| `latest_block_rate` | ≥ 0 | a reorg, a forked node, or a provider serving stale state |
+
+The second was added after the first exposed the pattern, and it found a live
+blind spot. Block height is differenced into a rate before scoring, and
+`rate_series` drops negative increments so a spurious reversal cannot corrupt a
+baseline. Applied to the *current* reading that does not leave a gap — it
+promotes the previous increment into its place. **Measured: a nine-reading series
+stepping back thirty blocks reported a rate of 10, identical to a healthy
+chain.** The statistical path could not have caught it either, since the series
+has never contained a negative for one to be unusual against. The baseline still
+filters negatives; the current reading no longer does.
+
+### Calibrating the bands — and what calibration actually showed
+
+Run `python -m eval.calibration`. Scored against the backing failures with
+citable figures, the honest result is that **the thresholds do almost no work**:
+
+- **Every observed failure is catastrophic, and none is gradual.** Kelp's rsETH
+  OFTAdapter went from fully backed to 0.19% of its prior reserve inside a single
+  block on 2026-04-18 — a forged bridge message, not a drift, so no intermediate
+  reading exists. The sustained aftermath was 26.46% across ~20 chains.
+- **The graded bands contain zero observations.** Everything real lands deep
+  inside `critical`. Moving the `high` boundary anywhere between 0.01% and 10%
+  would not change the verdict on a single case.
+- **So the boundaries are economics, not a fit.** Below ~0.1% a shortfall costs
+  less to ignore than a redemption round-trip costs in gas and slippage. Above 1%
+  of a nine-figure wrapper the missing collateral is measured in millions. Both
+  are judgement, and presenting them as tuned would be dishonest.
+- **The binding constraint is detection latency, not sensitivity.** rsETH's first
+  defensive freeze came 77 minutes after the exploit block, and neither primary
+  source says what raised the alarm — so that is *response* latency and the true
+  detection latency is unknown and no shorter. A signal 99.8% below target does
+  not need a sensitive detector; it needs one that is looking. Hourly collection
+  bounds observation latency at one hour, and that is a property of the schedule.
+
+The dataset's most useful row is the negative control. WBTC traded at a discount
+in 2022 while its reserves were intact — a price monitor fires, a backing monitor
+correctly does not. rsETH is the same disagreement inverted, and far more
+dangerous: **the Chainlink feed kept quoting the canonical redemption rate after
+the backing was gone**, so lending markets saw no deviation and a 95% liquidation
+threshold was never crossed. The case for reading chain state is not that it is
+more sensitive than a price feed. It is that it measures the thing that broke.
+
 ---
 
 ## The evidence graph
@@ -705,6 +783,29 @@ store that can drift out of agreement with the first.
 The output is a structured intelligence artifact, rendered **deterministically**.
 A model writing it would be free to smooth over the gaps, and the gaps are the
 most important thing on the page.
+
+The scope section renders the plan as a **checklist that filled in during
+execution** — which is possible only because the plan is recorded before anything
+runs, and is the main reason it is recorded:
+
+```
+**Coverage**
+
+- [ ] Documentation research — ran, produced no citation
+- [x] On-chain readings — 3 readings
+- [ ] Security review — ran, produced no record
+- [x] Anomaly scoring — 1 metric scored against a baseline
+- [–] Claim verification — not in scope for this classification
+```
+
+What changes is affect, not information. "No security findings" printed under a
+`## Security Findings` heading reads as breakage, because it appears as an
+absence in a slot that expected a value. The same fact as an unticked step in a
+list of intended steps reads as scope. Nobody thinks a test suite is broken
+because it reports skipped tests — the skip is presented as a decision rather
+than as a hole. The third state matters for the same reason: a stage outside the
+plan's classification was never scope, and showing it as an empty result would
+invent a gap the investigation never had.
 
 An investigation with unmet stages opens:
 
@@ -1016,6 +1117,32 @@ tests were written to confirm the design, so they could not challenge its
 premise. A geometric mean that made verification compensatory, a claim taxonomy
 that was really agent identity, and a benchmark whose anomalies sat fifteen sigma
 from baseline all passed everything asked of them.
+
+### The mechanism that diagnosis was missing
+
+Naming the pattern does not catch the fourth instance. And two of the six are
+better read as one bug class than two bugs: a five-factor geometric mean that
+could not fall below 0.55, and additive pooling that let twenty chain
+observations outscore a documentation source, are both *a scoring rule in which
+enough of a weak input substitutes for a strong one*.
+
+So `tests/test_confidence_properties.py` asserts properties over the whole
+scoring space rather than examples inside it — exhaustive across every claim
+kind, tier and verification status, gridded across the four continuous factors:
+
+- no arrangement of inputs lets a `contradicted` claim score above zero
+- no volume of below-floor evidence outscores one apt source, at any claim kind
+- piling on inapt sources saturates rather than accumulating
+- every factor is conjunctive: any single zero forces a zero score
+- the score is monotone in each factor, so "it scored lower because the evidence
+  was fresher" is never a true sentence
+- ten citations of one page score exactly as one
+
+An example test asks whether a claim scores what its author expected. A property
+asks whether any point in the space violates a rule the design claims to enforce,
+and is indifferent to what the author expected. If compensation reappears
+anywhere in this model, one of these fails without anyone having predicted where
+it would surface.
 
 ---
 

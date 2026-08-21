@@ -419,6 +419,80 @@ def coverage_gaps(
     return gaps
 
 
+DONE, EMPTY, SKIPPED = "x", " ", "–"
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def _stage_rows(
+    plan: InvestigationPlan,
+    claims: list[Claim],
+    evidence: list[Evidence],
+    risk_signals: list[dict],
+    verification: dict,
+) -> list[tuple[str, str, str]]:
+    """Every stage, its state, and what it produced. Ordered as executed."""
+    by_agent: dict[str, int] = {}
+    for item in (*claims, *evidence):
+        key = getattr(item.agent, "value", item.agent)
+        by_agent[key] = by_agent.get(key, 0) + 1
+
+    def agent_row(name: str, label: str, noun: str) -> tuple[str, str, str]:
+        if name not in plan.agents:
+            return label, SKIPPED, "not in scope for this classification"
+        n = by_agent.get(name, 0)
+        if n:
+            return label, DONE, _count(n, noun)
+        return label, EMPTY, f"ran, produced no {noun}"
+
+    rows = [
+        agent_row("research_agent", "Documentation research", "citation"),
+        agent_row("blockchain_agent", "On-chain readings", "reading"),
+        agent_row("security_agent", "Security review", "record"),
+    ]
+
+    if not plan.risk_engine:
+        rows.append(("Anomaly scoring", SKIPPED, "not in scope for this classification"))
+    else:
+        scored = [s for s in risk_signals if s.get("severity") != "unknown"]
+        rows.append(
+            ("Anomaly scoring", DONE, f"{_count(len(scored), 'metric')} scored against a baseline")
+            if scored
+            else ("Anomaly scoring", EMPTY, "no metric had enough history to score")
+        )
+
+    if not plan.verification:
+        rows.append(("Claim verification", SKIPPED, "not in scope for this classification"))
+    else:
+        examined = (verification or {}).get("claims_examined") or 0
+        rows.append(
+            ("Claim verification", DONE, f"{_count(examined, 'claim')} examined")
+            if examined
+            else ("Claim verification", EMPTY, "ran, had no claims to examine")
+        )
+    return rows
+
+
+def _scope_checklist(rows: list[tuple[str, str, str]]) -> list[str]:
+    """The plan, rendered as a checklist that filled in during execution.
+
+    The plan is recorded before anything runs, which makes this possible and is
+    the reason it is recorded. What changes here is affect, not information.
+
+    "No security findings" printed under a `## Security Findings` heading reads
+    as breakage, because it appears as an absence in a slot that expected a
+    value. The same fact as an unticked step in a list of intended steps reads as
+    scope. A test suite reporting skipped tests is not thought to be broken, and
+    for the same reason: the skip is presented as a decision rather than as a
+    hole where a result should be.
+    """
+    out = ["**Coverage**\n"]
+    out += [f"- [{state}] {label} — {detail}" for label, state, detail in rows]
+    return out
+
+
 def render_report(
     plan: InvestigationPlan,
     claims: list[Claim],
@@ -431,6 +505,7 @@ def render_report(
 ) -> str:
     """Assemble the §15 artifact. Pure: same record in, same bytes out."""
     ran = english_list([a.replace("_", " ") for a in plan.agents]) or "none"
+    rows = _stage_rows(plan, claims, evidence, risk_signals, verification)
 
     parts: list[str] = [
         "# Intelligence Assessment\n",
@@ -440,7 +515,8 @@ def render_report(
         f"**Question:** {plan.question}\n",
         f"**Classification:** {plan.query_type.replace('_', ' ')}\n",
         f"**Agents dispatched:** {ran}\n",
-        "## Protocol / Entity\n",
+        *_scope_checklist(rows),
+        "\n## Protocol / Entity\n",
         f"{_protocol_names(plan.protocols)}\n",
         f"{_freshness_line(evidence)}\n",
         "## Key Findings\n",
