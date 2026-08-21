@@ -1,0 +1,50 @@
+// Labelled verification cases — one JSON object per line.
+//
+// §19 asks for claim accuracy, evidence coverage, unsupported-claim rate,
+// contradiction-detection rate and false-verification rate. This file is the
+// labelled set those are measured on: each case is a claim, the evidence offered
+// for it, and the verdict a correct verification stage must reach.
+//
+// SYNTHETIC, and deliberately so. These are not sampled from production traffic —
+// they are constructed failures, one per way a claim can be wrong. That makes the
+// set a regression guard rather than an estimate of real-world rates, and it
+// should be described that way wherever the numbers appear. Real traffic will
+// have a different mix and will need its own labels.
+//
+// Fields:
+//   id, claim, expect, category, why
+//   evidence[]: {uri, summary, tier, kind, stance, age_days}
+//     tier   : primary | official | community | unverified
+//     kind   : document | on_chain_metric | market_data | statistical_signal
+//              | security_advisory | incident_report | audit_finding
+//     stance : supports | contradicts | neutral
+//     age_days: how old the evidence is; drives the temporal check
+//
+// The `expect` values are §13's four statuses. `verified` means a correct system
+// accepts the claim; everything else means it must not.
+
+{"id": "ver-001", "claim": "USDe is backed by delta-neutral positions.", "expect": "verified", "category": "clean", "why": "well sourced, unremarkable phrasing", "evidence": [{"uri": "https://docs.ethena.fi/a", "summary": "USDe is backed by delta-neutral positions.", "tier": "primary", "kind": "document", "stance": "supports"}, {"uri": "https://docs.ethena.fi/b", "summary": "The backing is delta neutral.", "tier": "primary", "kind": "document", "stance": "supports"}]}
+{"id": "ver-002", "claim": "Funding is charged hourly.", "expect": "verified", "category": "clean", "why": "single authoritative source is enough for an observation", "evidence": [{"uri": "https://docs.hl/funding", "summary": "Funding is charged hourly.", "tier": "primary", "kind": "document", "stance": "supports"}]}
+
+{"id": "ver-010", "claim": "The protocol is insolvent.", "expect": "insufficient_evidence", "category": "unsupported", "why": "no evidence at all", "evidence": []}
+{"id": "ver-011", "claim": "A backdoor exists in the mint contract.", "expect": "insufficient_evidence", "category": "unsupported", "why": "evidence offered is neutral context, not support", "evidence": [{"uri": "https://docs.ethena.fi/mint", "summary": "The mint contract is described here.", "tier": "primary", "kind": "document", "stance": "neutral"}]}
+
+{"id": "ver-020", "claim": "Daily outflow reached $87,300,000.", "expect": "partially_verified", "category": "fabricated_number", "why": "figure appears nowhere in the evidence", "evidence": [{"uri": "https://chain/outflow", "summary": "Daily outflow reached 12.5M.", "tier": "primary", "kind": "on_chain_metric", "stance": "supports"}]}
+{"id": "ver-021", "claim": "The fee is 4.5%.", "expect": "partially_verified", "category": "fabricated_number", "why": "evidence says 0.3%, not 4.5%", "evidence": [{"uri": "https://docs.hl/fees", "summary": "The taker fee is 0.3%.", "tier": "primary", "kind": "document", "stance": "supports"}]}
+{"id": "ver-022", "claim": "Daily outflow reached $12.5M.", "expect": "verified", "category": "number_matches", "why": "same figure, different notation — must not be flagged", "evidence": [{"uri": "https://chain/outflow", "summary": "Outflow was 12,500,000 over the day.", "tier": "primary", "kind": "on_chain_metric", "stance": "supports"}]}
+
+{"id": "ver-030", "claim": "The depeg was caused by an oracle failure.", "expect": "partially_verified", "category": "overclaimed_causal", "why": "causal claim resting on one source", "evidence": [{"uri": "https://forum/post", "summary": "The price deviated for 20 minutes.", "tier": "community", "kind": "incident_report", "stance": "supports"}]}
+{"id": "ver-031", "claim": "Redemption is guaranteed at all times.", "expect": "partially_verified", "category": "overclaimed_absolute", "why": "absolute claim resting on one source", "evidence": [{"uri": "https://docs.ethena.fi/redeem", "summary": "Redemption is available to whitelisted addresses.", "tier": "primary", "kind": "document", "stance": "supports"}]}
+{"id": "ver-032", "claim": "The drop was caused by a scheduled token unlock.", "expect": "verified", "category": "causal_supported", "why": "causal, but carried by two independent sources", "evidence": [{"uri": "https://docs.a/unlock", "summary": "An unlock was scheduled for this date.", "tier": "primary", "kind": "document", "stance": "supports"}, {"uri": "https://chain/transfer", "summary": "A large scheduled transfer settled on that date.", "tier": "primary", "kind": "on_chain_metric", "stance": "supports"}]}
+
+{"id": "ver-040", "claim": "Withdrawals were abnormally high.", "expect": "contradicted", "category": "contradicted", "why": "contradicting evidence outweighs support", "evidence": [{"uri": "https://chain/a", "summary": "One venue showed elevated withdrawals.", "tier": "primary", "kind": "on_chain_metric", "stance": "supports"}, {"uri": "https://chain/b", "summary": "Net flows were unchanged.", "tier": "primary", "kind": "on_chain_metric", "stance": "contradicts"}, {"uri": "https://chain/c", "summary": "Total supply was flat over the period.", "tier": "primary", "kind": "on_chain_metric", "stance": "contradicts"}]}
+{"id": "ver-041", "claim": "The peg held through the period.", "expect": "verified", "category": "minority_objection", "why": "one weak objection must not overturn strong support", "evidence": [{"uri": "https://chain/a", "summary": "Price stayed within band.", "tier": "primary", "kind": "on_chain_metric", "stance": "supports"}, {"uri": "https://chain/b", "summary": "Oracle agreed across the period.", "tier": "primary", "kind": "on_chain_metric", "stance": "supports"}, {"uri": "https://chain/c", "summary": "Secondary market showed a brief deviation.", "tier": "primary", "kind": "on_chain_metric", "stance": "supports"}]}
+
+{"id": "ver-050", "claim": "An exploit drained the treasury.", "expect": "partially_verified", "category": "unverified_source", "why": "only source is anonymous", "evidence": [{"uri": "https://forum/anon", "summary": "An anonymous post alleges a drain.", "tier": "unverified", "kind": "incident_report", "stance": "supports"}]}
+{"id": "ver-051", "claim": "An audit found no critical issues.", "expect": "verified", "category": "official_source", "why": "an accountable publisher is sufficient", "evidence": [{"uri": "https://auditor/report", "summary": "No critical issues were identified.", "tier": "official", "kind": "audit_finding", "stance": "supports"}]}
+
+{"id": "ver-060", "claim": "Funding is currently 0.01% per hour.", "expect": "partially_verified", "category": "stale", "why": "market data two days old cannot carry a present-tense claim", "evidence": [{"uri": "https://api/funding", "summary": "Funding was 0.01% per hour.", "tier": "primary", "kind": "market_data", "stance": "supports", "age_days": 2}]}
+{"id": "ver-061", "claim": "The protocol uses overcollateralised lending.", "expect": "verified", "category": "durable", "why": "a year-old documentation page is still current for a documented mechanic", "evidence": [{"uri": "https://docs.a/lending", "summary": "Lending is overcollateralised.", "tier": "primary", "kind": "document", "stance": "supports", "age_days": 300}]}
+
+{"id": "ver-070", "claim": "The outflows were caused by an exploit, draining $87,300,000.", "expect": "partially_verified", "category": "compound_failure", "why": "causal overreach and a fabricated figure at once", "evidence": [{"uri": "https://forum/anon", "summary": "Outflows of 12.5M were observed.", "tier": "unverified", "kind": "incident_report", "stance": "supports"}]}
+{"id": "ver-071", "claim": "Nothing unusual happened and the protocol is completely safe.", "expect": "insufficient_evidence", "category": "unsupported_absolute", "why": "an absolute all-clear with nothing behind it — the most dangerous shape a claim can take", "evidence": []}

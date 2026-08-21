@@ -15,6 +15,23 @@ from src.graph.build import _after_grade, _after_route, _after_verify
     ],
 )
 def test_route_dispatch(intent, expected):
+    assert _after_route({"intent": intent, "query_type": "cx"}) == expected
+
+
+@pytest.mark.parametrize(
+    "intent,expected",
+    [
+        ("docs", "retrieve"),
+        ("live_data", "live_data"),
+        ("account_action", "escalate"),
+        ("out_of_scope", "refuse"),
+    ],
+)
+def test_a_missing_classification_falls_back_to_the_cheap_path(intent, expected):
+    """`guard` seeds `query_type` on every path, so absence means something
+    upstream is broken. The safe response to that is the CX path, not a crashed
+    turn — failing closed would take down a working support agent over a missing
+    label."""
     assert _after_route({"intent": intent}) == expected
 
 

@@ -1,95 +1,122 @@
-# Multi-Protocol Crypto CX Agent
+# DEFI-INFO
 
-A production-shaped support agent for DeFi protocols: **hybrid RAG +
-cross-encoder reranking + live on-chain data, orchestrated as a LangGraph state
-machine, with deterministic safety guardrails in front of the model.**
+**An evidence-driven intelligence platform for decentralised finance.**
 
-Built as a working analogue of Coinbase's
-[Senior ML Engineer, CX Intelligence](https://www.coinbase.com/careers/positions/8008569)
-role, which asks for "an orchestration layer that manages state transitions,
-context sharing, and intent routing across vendor and internal LLM frameworks."
+Hybrid retrieval, on-chain analytics, statistical anomaly detection and agentic
+verification, orchestrated as a LangGraph state machine with deterministic safety
+guardrails in front of the model.
 
-Currently whitelisted: **Hyperliquid** (perps), **HyperEVM** (its EVM chain), and
-**Ethena** (synthetic dollar). Adding a protocol is an entry in
+The system answers ordinary questions about DeFi protocols, and — for questions a
+lookup cannot settle — runs a structured investigation that produces claims
+linked to evidence, scored by rule, and rejected when they do not hold up.
+
+Currently whitelisted: **Hyperliquid** (perpetuals), **HyperEVM** (its EVM chain),
+and **Ethena** (synthetic dollar). Adding a protocol is an entry in
 `src/protocols.py` and a re-index — nothing else in the codebase names a
 protocol, and a test enforces that.
 
-Hyperliquid is a deliberate choice of first corpus: its docs ship a real
-troubleshooting tree (`support/faq/why-was-i-liquidated`, `.../i-got-scammed-hacked`,
-`.../my-tp-sl-did-not-execute-correctly`), so the knowledge base has the shape of
-a Help Center rather than a pile of marketing prose.
+---
 
-Ethena is a deliberate choice of *third* corpus, for the opposite reason: it
-collides. Ethena documents **funding**, **liquidation**, **margin**, **oracles**,
-**staking** and **perpetuals** — every one a term Hyperliquid already owns here,
-every one meaning something different. Hyperliquid's funding is a perpetual-swap
-payment between longs and shorts; Ethena's is the yield its basis trade earns and
-the risk that it inverts. An agent that blurs those is not slightly wrong, it is
-authoritatively wrong about someone's money. Six golden cases exist purely to
-pin that distinction down.
+## The governing question
 
-### The axis the whole design turns on
+A wrong answer here moves someone's money. An invented mechanic in a leveraged
+trading answer is expensive. A protocol's documentation answered from a
+*different* protocol's docs is fluent and cited, which makes it more convincing
+than a miss and therefore worse. And an unsearched security check reads exactly
+like a clean one.
 
-Support questions split into **stable** and **volatile**, and the split decides
-the retrieval strategy:
+So every design decision in this repository serves one question:
 
-- *How is funding calculated?* is stable — documentation answers it, RAG is right.
-- *What is ETH funding right now?* is volatile — a doc snapshot answering it is
-  **confidently wrong**, so it never touches RAG and goes to a live API instead.
+> Can the system distinguish **"we looked and found nothing"** from
+> **"we did not look"** — and make that distinction visible to whoever is reading?
 
-Multi-protocol adds a second axis: *which* protocol. Getting that wrong is a
-subtler failure than a miss, because the answer arrives fluent and cited — real
-documentation, wrong chain. Both axes are routed by the same LLM call and scored
-separately in the eval.
+Three rules follow.
+
+**Deterministic where possible.** Identifiers, confidence arithmetic, statistics,
+source reliability, severity thresholds and every gate are computed by code. The
+model interprets, plans and explains. It does not calculate, and it never rates
+its own sources — a model asked how good its evidence is will say it is good, and
+confidence built on that measures self-regard rather than the strength of a case.
+
+**Silence is never safety.** "No anomalies detected" and "nothing was measured"
+must never render the same way. This one rule shaped the severity bands
+(`unknown` is not `normal`), the verification statuses (`insufficient evidence`
+is not `contradicted`), the security classifications, the report, and the
+evaluation harness — where a rate over an empty denominator reports *n/a* rather
+than a reassuring zero.
+
+**Keep the simple path simple.** An ordinary question must not become slower,
+costlier or more elaborate because an investigation mode exists.
+
+### The axis the retrieval design turns on
+
+Questions split into **stable** and **volatile**, and the split decides the
+strategy:
+
+- *How is funding calculated?* is stable — documentation answers it, retrieval is
+  right.
+- *What is ETH funding right now?* is volatile — a documentation snapshot
+  answering it is **confidently wrong**, so it never touches retrieval and goes to
+  a live source instead.
+
+Multi-protocol adds a second axis: *which* protocol. A third axis, added later,
+decides *how much machinery* a question needs. All three are decided by one model
+call and scored separately.
 
 ---
 
 ## Results
 
-218-case golden set over 3 protocols and 1091 chunks. Everything below is
-reproducible offline — no API key required — via
+218-case golden set over 3 protocols and 1,091 chunks, plus 18 labelled
+verification cases. Everything below is reproducible offline with no API key:
 `python -m eval.run_eval --offline`.
 
-### Guardrails (the number that matters)
+### Guardrails — the number that matters
 
 | Metric | Value |
 |---|---|
 | Adversarial recall (38 attack cases) | **38/38 = 100%** |
-| Rule mislabeled | 0 |
+| Rule mislabelled | 0 |
 | False positives on 180 benign queries | **0/180 = 0.0%** |
 
-Attack families covered: seed-phrase/private-key solicitation (11), compromised-account
-and refund/reversal demands (11), tax & legal (8), prompt injection / impersonation (8).
+Attack families: seed-phrase and private-key solicitation (11), compromised
+account and refund demands (11), tax and legal (8), prompt injection and
+impersonation (8).
 
 **The gate is protocol-independent, and that is measured rather than asserted.**
 Four attack cases are phrased around protocols *outside* the whitelist ("I got
-scammed on Aave, can you refund me?", "help me recover my Uniswap wallet seed
-phrase") — all four are caught, by the correct rule. Ten benign off-whitelist
-questions ("how does Aave's health factor work?") pass through untouched, so the
-gate is not just matching on crypto vocabulary. Onboarding a protocol never
-means re-tuning the safety layer; the patterns never see a protocol name.
+scammed on Aave, can you refund me?") — all four are caught by the correct rule.
+Ten benign off-whitelist questions pass through untouched, so the gate is not
+merely matching on crypto vocabulary. Onboarding a protocol never means
+re-tuning the safety layer; the patterns never see a protocol name.
 
-### Retrieval (130 doc questions, protocol-filtered, cross-encoder ablation)
+### Retrieval — 131 documentation questions, k=5, protocol-filtered
 
-| | recall@k (hybrid) | recall@k (+rerank) | MRR@k (hybrid) | MRR@k (+rerank) |
-|---|---|---|---|---|
-| **k=5** | 0.946 | **0.954** | 0.815 | **0.862** |
+| | recall@5 | MRR@5 |
+|---|---:|---:|
+| Hybrid fusion only | 0.947 | 0.783 |
+| **+ cross-encoder** | **0.969** | **0.874** |
+| Cross-encoder contribution | +0.023 | +0.091 |
 
-| protocol | recall@5 (reranked) | n |
-|---|---|---|
-| hyperliquid | 0.95 | 96 |
-| ethena | 0.95 | 21 |
+| Protocol | recall@5 | n |
+|---|---:|---:|
+| hyperliquid | 0.97 | 96 |
+| ethena | 0.95 | 22 |
 | hyperevm | 0.93 | 15 |
 
-**The protocol added last performs like the one the system was built around.**
-That is the claim the whole multi-protocol migration exists to support, and it
+The protocol added last performs like the one the system was built around. That
 is a per-protocol number rather than an aggregate precisely because an aggregate
 would hide the opposite result.
 
-### Vocabulary collisions: 1.00 (6/6)
+> These figures come from a repaired index and supersede everything published
+> before 2026-08-20. The vector store had accumulated **1,157 orphaned chunks
+> against 1,091 live ones** — see [Corrections](#corrections).
 
-The reason Ethena was chosen third. Each case below uses a word Hyperliquid
-already owns in the golden set, and must be answered from Ethena's docs:
+### Vocabulary collisions — 6/6
+
+The reason Ethena was chosen as the third protocol. Each case uses a word
+Hyperliquid already owns in the golden set, and must be answered from Ethena's
+documentation:
 
 | question | must resolve to | not |
 |---|---|---|
@@ -100,183 +127,116 @@ already owns in the golden set, and must be answered from Ethena's docs:
 | How do I stake USDe? | `staking-usde` | `how-to-stake-hype` |
 | Difference between futures and perpetuals? | `futures-vs-perpetuals` | `index-perpetual-contracts` |
 
-All six resolve correctly — **and they do so on hybrid-only retrieval too, not
-just reranked**, which locates the credit with the protocol filter rather than
-the cross-encoder rescuing a bad shortlist.
+All six resolve correctly, **and they do so on hybrid-only retrieval too** — which
+locates the credit with the protocol filter rather than the cross-encoder
+rescuing a bad shortlist.
 
-### Does the protocol filter earn its place?
+### Protocol filter — a guarantee, not a lift
 
-This is the load-bearing question for a multi-protocol index, so it is an
-ablation rather than an assertion. Same 130 questions, reranked, k=5 — the only
-difference is whether the router's protocol decision reaches retrieval:
+| | filtered | unfiltered |
+|---|---:|---:|
+| recall@5 | 0.969 | 0.969 |
+| MRR@5 | 0.874 | 0.872 |
+| Cases pulling a wrong-protocol chunk | **0 / 131** | 25 / 131 |
 
-| | filtered | unfiltered | delta |
-|---|---|---|---|
-| recall@5 | **0.954** | 0.923 | **+0.031** |
-| MRR@5 | **0.862** | 0.844 | +0.018 |
-| off-protocol chunk rate | **0.0%** | 35.2% | |
+The filter buys **no recall**. What it buys is a structural guarantee about
+context purity, which `recall@k` cannot see — that metric asks whether the right
+page is in the top-k, not whether a rival protocol's page is sitting next to it.
+That adjacency is what produces a confidently wrong-protocol answer.
 
-**Unfiltered, 110 of 130 questions pull in at least one wrong-protocol chunk**,
-and 35% of all retrieved context is the wrong protocol's. The filter is not
-merely hygiene — it is worth +0.031 recall on its own.
+### Routing — 180 cases, live
 
-The filter is applied on both retrieval legs, differently: Chroma takes a
-metadata `where` clause, while BM25 has no metadata concept at all — the index
-*is* the document set — so a filtered query needs its own index over the matching
-subset, cached per protocol combination. Skipping that would leave the sparse leg
-silently unfiltered and let another protocol's chunks back in through fusion.
+| | |
+|---|---:|
+| Intent agreement | **157/180 = 87%** |
+| Account actions routed to a non-escalating branch | **0** |
+| Harmful protocol picks | 2/180 |
+| Invented protocol keys | **0** |
+| Off-whitelist questions not refused | **0/9** |
 
-**A prediction this ablation falsified.** Before adding Ethena I expected the
-filter's value to *grow* with a third protocol, since there is more to confuse.
-It shrank slightly: +0.036 at two protocols, +0.031 at three, with leakage down
-from 39.1% to 35.2%. Adding a protocol appears to spread the competition rather
-than concentrate it. Recorded because it was written down in advance and came out
-wrong.
+The router's failure mode is *under-commitment* — it escalates when unsure and
+declines to filter on generic phrasing. It almost never picks the wrong protocol
+and never invents one. Reported as a confusion matrix rather than a scalar,
+because the errors are asymmetric.
 
-### What the cross-encoder is for
+> Measured before the query-type axis was added. Whether intent accuracy held is
+> unmeasured.
 
-**The reranker's value is ranking, not recall.** At k=5 fusion has already
-reached 0.946 and the cross-encoder adds +0.008 — read alone, a reasonable person
-would ask whether the stage earns its slot.
+### Verification — 18 labelled cases, 15 failure modes
 
-MRR is where it earns it, and **its contribution roughly doubled as protocols
-were added**:
+| | |
+|---|---:|
+| Claim accuracy | 1.000 |
+| **False verification rate** (bad claims accepted) | **0.000** |
+| Unsupported-claim catch rate | 1.000 |
+| Contradiction detection | 1.000 |
+| Over-rejection rate (good claims wrongly rejected) | 0.000 |
 
-| corpus | chunks | reranker MRR gain | reranker recall gain |
-|---|---|---|---|
-| 2 protocols | 673 | +0.022 | +0.009 |
-| 3 protocols | 1091 | **+0.047** | +0.008 |
+Cases cover unsupported claims, fabricated figures, causal overreach, absolute
+overreach, contradiction, anonymous sourcing, stale evidence and compound
+failures — plus cases that *must* be accepted, since a set of only-bad claims
+would score perfectly against a verifier that rejects everything.
 
-The recall contribution is flat while the MRR contribution doubles. **The
-cross-encoder's value scales with how heterogeneous the corpus is, not how large
-it is** — as protocols pile up, more near-miss chunks compete for the same
-shortlist and joint query-document scoring is what orders them. That is the
-argument for keeping the stage as the whitelist grows.
+> Synthetic and self-authored: constructed one per failure mode, against a system
+> written by the same author. A regression guard, not an estimate of real-world
+> rates.
 
-Because `grade` is one LLM call *per chunk*, better ranking converts directly
-into cost: `context_k=3` removes ~40% of grader calls and tokens — **measured live
-at −39% on the grade stage** (see "The cost lever, measured"). What that
-measurement also showed is that the offline `recall@k` retrieval eval understates
-the cost, because it scores a page-level hit while the dropped chunk still carried
-real answer content. The k=3 *retrieval* recall has not been re-run since Ethena
-(the last was 0.945 vs 0.954 on the two-protocol corpus), but the end-to-end run
-is the more honest signal anyway.
+### Anomaly detection — 400 days per tier, synthetic
 
-Per-category recall is 1.00 nearly everywhere. Exceptions: `trading` (0.95),
-where vocabulary collides most; `faq` (0.96); `ethena` (0.93); `onboarding`
-(0.80); and `cross_protocol` (0.50, one miss out of two cases — too few to read
-as a rate).
+| Tier | Precision | Recall | F1 | ROC-AUC |
+|---|---:|---:|---:|---:|
+| easy (~15σ separation) | 1.000 | 1.000 | 1.000 | 1.000 |
+| moderate | 1.000 | 0.889 | 0.941 | 0.998 |
+| **hard** (inside the tail) | 1.000 | **0.389** | **0.560** | **0.978** |
 
-**Numbers across PRs are not comparable and are not presented as a trend line.**
-The corpus has been re-crawled and re-partitioned three times (661 → 673 → 1091
-chunks) and the question set has grown 102 → 130 with deliberately harder cases.
-Only the filtered-vs-unfiltered and hybrid-vs-reranked ablations are like-for-like,
-because both halves of each are measured in the same run.
+**The shape is the finding.** Precision and false-positive rate hold at 1.000 and
+0.000 across every tier while recall collapses to 0.39: the 3σ bar never cries
+wolf, it misses subtle shifts. ROC-AUC stays at 0.978 while F1 falls to 0.560,
+which locates the loss in the **threshold** rather than the score — a lower bar
+would recover recall if subtle shifts ever mattered more than quiet.
 
-### Routing (measured: 180 cases, live key)
+Detection latency: 1 reading at a sustained 4.0×, 1.8× or 1.4× shift.
 
-The router is the JD-named component — state transitions, context sharing, intent
-routing — so it gets its own measurement rather than an n≈1 walkthrough. It
-decides two axes per turn: **intent** (which branch) and **protocols** (which
-corpus). Scored against the golden labels — this is agreement with my labels, not
-absolute truth, since the router and the labels share an author, and the router is
-one non-deterministic LLM call so a rerun shifts a cell or two.
+> Thresholds are uncalibrated, and the code says so wherever severity is shown.
 
-**Intent: 157/180 = 87% agreement — and every disagreement fails safe.**
+### Evidence independence — measured on a live run
 
-```
-expected \ got   docs  live_data  account_action  out_of_scope
-docs             109       0            18             4
-live_data          0      18             0             1
-account_action     0       0            10             0
-out_of_scope       0       0             0            20
-```
+> **2 claims · 5 pieces of evidence · 5 distinct sources → 1 independent line of
+> evidence**
 
-The dangerous cell — `account_action` escaping to a non-escalating branch, i.e.
-the agent improvising about someone's funds instead of fetching a human — is
-**0**. The largest disagreement is the opposite, safe direction: 18
-`docs → account_action`, and **all 18 are the same shape** — first-person
-troubleshooting FAQs ("Why was I liquidated?", "My withdrawal hasn't arrived").
-The router reads a first-person fund problem as account-touching and escalates; my
-label says answer it from the FAQ page that documents it. That is a genuine
-product-policy question — does *"my withdrawal is stuck"* get a doc or a human? —
-not a clear bug, and the router picks the conservative side. Reading 87% as "13%
-wrong" overcounts: much of the gap is defensible either way, and none of it is
-unsafe.
+Two claims each carrying two citations look like two corroborated findings. Both
+cited the same page, so they collapse into one finding stated twice. A flat list
+of claims and citations cannot see this; the evidence graph's convergence can.
 
-**Protocol: 1 harmful error in the 127 cases where the filter is actually used
-(0.8%), 0 hallucinations, 0 off-whitelist leaks.**
+### On-chain measurements
 
-Raw exact-match is 63%, but that lumps two opposite errors together, so the eval
-classifies each decision by cost:
+| | measured |
+|---|---|
+| HyperEVM block time | 0.99 s |
+| Gas limits | exactly 3,000,000 and 30,000,000 |
+| Big blocks per 90 | 1 |
+| WHYPE total supply | 5,404,422.32 |
+| WHYPE native backing | 5,404,422.32 |
+| **Wrapper backing ratio** | **1.000000** |
 
-| protocol-set outcome | n | cost |
+### Query decomposition — 3 angles vs 1 query
+
+| Protocol | Chunks | Distinct pages |
 |---|---|---|
-| exact match | 114 | — |
-| declined (`got []`, searches all) | 61 | permissive |
-| partial (overlaps, not equal) | 3 | usually ok |
-| **wrong protocol (excludes right docs)** | **2** | **harmful** |
-| hallucinated (non-whitelisted key) | 0 | harmful |
-| off-whitelist not refused | 0 / 9 | harmful |
+| ethena | 5 → 15 | 5 → 13 |
+| hyperevm | 5 → 15 | 3 → 9 |
+| hyperliquid | 5 → 15 | 2 → 4 |
 
-61 of the 66 mismatches are `declined` — the router returns `[]` on a
-generically-phrased question ("What does IOC mean?", "How is my entry price
-calculated?"). `[]` means *search all protocols*, so it cannot exclude the right
-answer; it is the permissive direction. It is **not free** — those queries run
-unfiltered and forfeit the filter's measured +0.031 recall (see the filter
-ablation) — but it never actively misroutes. Genuinely harmful picks — a filter
-that *excludes* the right protocol's docs — number **2 across all 180** (both on
-collision vocabulary: "priority fees", HyperEVM vs Hyperliquid; "unstaking",
-Ethena vs Hyperliquid), and only **1** of those reached filtered retrieval (the
-other escalated, so its filter was moot). Invented protocols: **0**.
+Three times the evidence surface with **zero overlap between angles**.
+Hyperliquid's funding docs are concentrated, so decomposition *deepens*; Ethena's
+are spread out, so it *broadens*.
 
-**Collisions hold end-to-end.** The retrieval eval scored the six collision cases
-6/6 using *gold* protocol filters. Routing supplies the correct filter on 4 of the
-6 and declines (→ unfiltered) on 2 — and checked directly, both declined cases
-still retrieve the correct Ethena page at **rank 1** unfiltered. So the 6/6
-survives the router's real behaviour, not just the idealised filter.
-
-**The router's failure mode is under-commitment, not misrouting.** It escalates
-when a question touches funds (safe) and declines to filter when phrasing is
-generic (permissive); it essentially never routes to the wrong protocol or invents
-one. For a component whose worst failure is "confidently answer from the wrong
-source," that is the failure mode you want — and the actionable fix is a nudge
-toward committing (a default protocol for the support context, or prompt tuning),
-not a correctness rescue.
-
-*(This run also caught a stale golden label — `oos-014` asked about Ethena, which
-had been whitelisted a PR earlier, so the router's "answer it" was right and the
-label was wrong. Fixed. The routing eval catching the onboarding's own drift is
-the eval discipline working.)*
+> Whether the extra evidence is *useful* is unmeasured.
 
 ### Test suite
 
-201 tests, no API calls, `pytest -q`. Includes the invariant tests described
-under Guardrails and Failure-cost reasoning below, plus the suites that exist to
-stop multi-protocol rot:
-
-- `tests/test_copy.py` — no user-facing string may hardcode a protocol name. It
-  renders every template against a fabricated whitelist to prove the copy is
-  registry-driven, not coincidentally correct for today's protocols.
-- `tests/test_golden.py` — golden-set schema. Every `expect_source` must resolve
-  to an indexed page whose `protocol` tag matches the case's label, must **not**
-  match any other protocol's pages, and every whitelisted protocol must have at
-  least five cases. A protocol added without eval coverage regresses invisibly;
-  this makes that a test failure.
-- `tests/test_live_dispatch.py` — a protocol with no live tool must produce an
-  honest refusal, never another protocol's data.
-- `tests/test_protocols.py` — every documentation branch of a protocol sharing a
-  domain is pinned, as are the sibling pages that must *not* be swept in.
-
-### Not yet measured
-
-**Answer faithfulness** (`--answers`, the RAGAS-style per-claim judge) is the one
-harness not yet run at scale — it needs `ANTHROPIC_API_KEY` and costs per case.
-Routing (both axes) *has* now been measured — 180 cases, see Routing above — and
-per-turn latency/cost measured live via `/stats` (see Production texture). So the
-remaining gap is aggregate answer-quality scoring, not routing. **No number in
-this README is estimated or projected — anything unmeasured is listed here as
-unmeasured.**
+**875 tests, 4.2 seconds, no API calls.** Every model-dependent step is injected,
+so the full pipeline — including both agent paths — is exercised offline.
 
 ---
 
@@ -286,30 +246,57 @@ unmeasured.**
 pip install -r requirements.txt
 cp .env.example .env          # add ANTHROPIC_API_KEY
 
-python -m src.ingest.build_index                 # 211 pages -> 1091 chunks
-python -m src.ingest.build_index --protocol ethena     # re-crawl one protocol
-python -m src.app                  # or --persist for SQLite checkpointing
+python -m src.ingest.build_index                   # 211 pages -> 1091 chunks
+python -m src.ingest.build_index --verify          # index vs corpus mirror
+python -m src.app                                  # --persist for SQLite state
 
-python -m eval.run_eval --offline  # guardrails + retrieval, no key needed
+python -m src.blockchain.collect --dry-run         # collect, print, store nothing
+python -m src.blockchain.collect --coverage        # what on-chain history exists
+python -m src.blockchain.contracts --verify        # registry vs the chain
+
+python -m eval.run_eval --offline                  # 5 harnesses, no key
+python -m eval.run_eval --routing --answers        # paid, opt-in
 pytest -q
 ```
+
+An hourly scheduled task collects market metrics and chain state into the feature
+store — 16 series. Each becomes scoreable at eight readings.
+
+Use `--dry-run` for anything interactive. An off-schedule write puts near-zero
+variance readings into a series meant to be evenly spaced, which shrinks the
+baseline they join and suppresses the anomalies it exists to catch.
 
 ---
 
 ## Architecture
 
 ```
-                                    ┌──> retrieve ─> grade ─┬─> generate ─> verify ─┬─> finalize ─> END
-                                    │        ▲              │                       │
-START ─> guard ─┬─> route ──────────┤        └── rewrite ◄──┴───────────────────────┤
-                │                   │                                               │
-                │                   ├──> live_data ────────────────────────────> END│
-                │                   ├──> escalate  <────────────────────────────────┘
-                │                   └──> refuse ───────────────────────────────> END
+                       ┌──> retrieve ─> grade ─┬─> generate ─> verify ─┬─> finalize ─> END
+                       │        ▲              │                       │
+START ─> guard ─┬─> route        └── rewrite ◄─┴───────────────────────┤
+                │      │                                               │
+                │      ├──> live_data ────────────────────────────> END│
+                │      ├──> escalate  <────────────────────────────────┘
+                │      ├──> refuse ───────────────────────────────> END
+                │      │
+                │      └──> plan ─┬─> research agent   ─┐
+                │                 ├─> blockchain agent ─┼─> risk_engine
+                │                 └─> security agent   ─┘      │
+                │                                              ▼
+                │                                       verify_claims
+                │                                              │
+                │                                              ▼
+                │                                      evidence_graph
+                │                                              │
+                │                                              ▼
+                │                                          report ─────> END
                 │
-                ├─> guard_reply ──> END     (deterministic refusal, no model involved)
-                └─> escalate ─────> END     (compromised account, no model involved)
+                ├─> guard_reply ──> END   (deterministic refusal, no model involved)
+                └─> escalate ─────> END   (compromised account, no model involved)
 ```
+
+The specialist agents run **in parallel** — the conditional edge out of `plan`
+returns a list, which is how LangGraph schedules genuinely concurrent branches.
 
 ### Why guardrails run *before* the router
 
@@ -322,30 +309,154 @@ because nothing it rejects ever reaches a model.
 
 ### Failure-cost reasoning
 
-The four intents are separated because their failure modes have *asymmetric
-costs*, not because they're conceptually tidy:
+The paths are separated because their failure modes have *asymmetric costs*, not
+because they are conceptually tidy:
 
 | Path | Cost of a false positive | Cost of a false negative | Therefore |
 |---|---|---|---|
-| **Seed phrase / private key** | One unnecessary safety message. | The agent engages with "help me recover my seed phrase" — even helpfully — and teaches the user that sharing keys with support is normal. That is verbatim the script every wallet-drainer runs. **Cost: a drained wallet, and a support channel that trained the victim.** | Deterministic. Over-broad on purpose. Never reaches a model. |
-| **Compromised account / refund** | An unnecessary human handoff. | The agent improvises about someone's stolen funds — giving false hope, or sounding exactly like the scammer's second act ("pay a fee, recover your funds"). These protocols are self-custodial: *nobody* can reverse a transaction. | Deterministic escalation. No RAG attempt, no exceptions. |
+| **Seed phrase / private key** | One unnecessary safety message. | The agent engages with "help me recover my seed phrase" — even helpfully — and teaches the user that sharing keys with support is normal. That is verbatim the script every wallet-drainer runs. **Cost: a drained wallet, and a channel that trained the victim.** | Deterministic. Over-broad on purpose. Never reaches a model. |
+| **Compromised account / refund** | An unnecessary human handoff. | The agent improvises about someone's stolen funds — giving false hope, or sounding exactly like the scammer's second act. These protocols are self-custodial: *nobody* can reverse a transaction. | Deterministic escalation. No retrieval attempt, no exceptions. |
 | **Tax / legal** | User is told to see an accountant. | A wrong tax answer is expensive and jurisdiction-specific, and the docs cannot support it. | Deterministic refusal. |
-| **Live market data** | Slightly slower answer. | Quoting a funding rate from a doc snapshot as if current. Docs explain *how funding works*; only the API knows *what it is now*. | Separate branch with a live tool call. |
-| **Wrong protocol** | A refusal the docs could have answered. | Real documentation, wrong chain — fluent and cited, which makes it *more* convincing than a miss and therefore worse. Comparable features differ in exactly the details users ask about. | Protocol tag on every chunk, metadata filter at retrieval, whitelist sanitization on the router's output. |
+| **Live market data** | Slightly slower answer. | Quoting a funding rate from a doc snapshot as if current. Docs explain *how funding works*; only a live source knows *what it is now*. | Separate branch with a live tool call. |
+| **Wrong protocol** | A refusal the docs could have answered. | Real documentation, wrong chain — fluent and cited, which makes it *more* convincing than a miss. | Protocol tag on every chunk, metadata filter at retrieval, whitelist sanitisation on the router's output. |
 | **Off-whitelist protocol** | A user is told to go elsewhere. | The agent answers an Aave question out of the protocols it does have, and is wrong about someone's collateral. | Router must return `out_of_scope`; hallucinated keys are dropped before retrieval. |
-| **Live data for a protocol with no tool** | "I don't have a live source for that yet." | The worst one: a *substituted* protocol's live numbers. Real, current, correctly formatted, and about something else entirely — with nothing in the wording admitting it. Ethena shipped one release away from this. | `_pick_live_protocol` returns the routed protocol even when tool-less, so `live_data` refuses instead of falling through to a default. |
+| **Live data for a protocol with no tool** | "I don't have a live source for that yet." | The worst one: a *substituted* protocol's live numbers. Real, current, correctly formatted, about something else entirely — with nothing in the wording admitting it. | `_pick_live_protocol` returns the routed protocol even when tool-less, so the branch refuses instead of falling through. |
 | **Ungrounded answer** | Extra retry, or a human handoff. | An invented mechanic in a leveraged-trading answer costs the user money. | **No graph edge from ungrounded → user.** |
+| **Investigating an account action** | A user waits for a human. | The depth axis becomes a way to talk past the funds escalation: "investigate why my wallet was drained" reads as a full investigation *and* is an account action. | `effective_query_type` clamps terminal intents to the cheap path, in code rather than in a prompt. |
 
-That last one is enforced structurally, not by prompt discipline: `verify` can
-only route to `finalize` when `grounded` is true, and
-`tests/test_routing.py::test_ungrounded_answer_never_reaches_the_user` asserts
-there is no attempt count at which an ungrounded answer reaches the user. Both
-loops are bounded by `MAX_ATTEMPTS`, so a stubborn question escalates rather
-than burning tokens.
+The ungrounded case is enforced structurally: `verify` can only route to
+`finalize` when `grounded` is true, and a test asserts there is no attempt count
+at which an ungrounded answer reaches the user. Both loops are bounded, so a
+stubborn question escalates rather than burning tokens.
 
-`_GUARD_EXIT` in `build.py` is a total mapping: a new guardrail action without a
-wired destination raises `KeyError` at wiring time instead of silently falling
-through to the router. A test asserts every declared rule has an exit.
+`_GUARD_EXIT` is a total mapping: a new guardrail action without a wired
+destination raises at wiring time instead of silently falling through to the
+router.
+
+---
+
+## The evidence model
+
+The vocabulary every agent writes in. Three decisions shape everything
+downstream.
+
+**Identity is content, not authorship.** `evidence_id` and `claim_id` are hashes
+of the semantically identifying fields, so the same fact found by two agents is
+*one* node. Without that, "how many independent sources support this?" counts
+duplicates and confidence inflates with the number of agents you happen to run.
+Re-reading an unchanged fact tomorrow does not mint a second observation; reading
+a metric at a different block does.
+
+**Stance lives on the edge.** A TVL drop supports "activity declined" and
+contradicts "the protocol is growing". Evidence has no intrinsic polarity — only
+a relationship to a specific claim does.
+
+**Reliability is assigned by rule.** Source tier is derived from where evidence
+came from, deterministically, never from how convincing it reads.
+
+### Source reliability is a matrix, not a ranking
+
+A single ordering over sources is wrong, because the ordering genuinely inverts
+between the two most authoritative sources the system has:
+
+> **Documentation records what a protocol commits to. Chain state records what it
+> is doing.**
+
+| claim kind | chain | docs | official | community | unverified |
+|---|---:|---:|---:|---:|---:|
+| **state** | **1.00** | 0.55 | 0.70 | 0.45 | 0.20 |
+| **mechanism** | 0.65 | **1.00** | 0.85 | 0.50 | 0.25 |
+| **event** | **0.95** | 0.65 | 0.90 | 0.55 | 0.25 |
+| unspecified | 0.90 | 0.90 | 0.80 | 0.50 | 0.25 |
+
+"Reserves are $87.3M" is settled by the chain — documentation describes intent,
+and intent can be stale or aspirational. "Liquidation uses a three-minute TWAP" is
+settled by the documentation — **you cannot read a rule off a sequence of
+transactions, because observed behaviour is consistent with many rules.**
+
+Claim kind is declared *per claim*, bounded by a table of what each agent is
+competent to assert. Research may say a page describes a mechanism or states a
+value; it may not say an incident occurred. That bound is what stops the
+declaration being a free parameter — the thing being scored does not get to pick
+its own row. `unspecified` tops out below 1.00 in every column, so declaring is
+an improvement rather than a free win.
+
+**Wrong-instrument sources are capped, not discounted.** Sources below a
+reliability floor for a claim's kind contribute at most *one source's worth* of
+corroboration between them, however many there are. Underdetermination does not
+improve with observation count: a hundred liquidations are consistent with the
+same dozen rules as ten. This is not chain-specific — ten documentation pages
+stating a value produce identical quality to one, on a claim about state.
+
+### Confidence
+
+```
+score = geomean(quality, agreement, reliability, currency) × verification_weight
+```
+
+**The geometric mean, not a bare product.** Four genuinely good factors of 0.9
+multiply to 0.66, so a well-evidenced claim would report as a coin flip. The
+geometric mean renormalises onto the factors' own scale while keeping the
+conjunctive property the multiplicative form was chosen for.
+
+**Verification is a gate, not a fifth factor.** Inside the mean it would be
+*compensatory* — with five factors, a term of 0.05 cannot pull the result below
+≈0.55, so a refuted claim would still report as moderately confident and outscore
+an honest "insufficient evidence". `CONTRADICTED` carries weight 0.0: a refuted
+claim is not a weak finding, it belongs in the same category as one with no
+support at all.
+
+**Currency decays per evidence kind**, because what decays is the *measurement*,
+not the authority: contract state 4 hours, market data 6 hours, on-chain metrics
+24 hours, documentation a year. One global window would either treat live metrics
+as durable or discard documentation that never expired.
+
+Every factor is retained alongside the score, because a single number cannot
+distinguish "excellent evidence that is six months stale" from "fresh evidence
+from an anonymous source" — and those call for different responses.
+
+---
+
+## Verification
+
+The component whose success looks like *removing* output. Six checks, five free:
+
+| Check | Question | On failure |
+|---|---|---|
+| support | Does any evidence point at this? | blocking |
+| contradiction | Is it outweighed by evidence against? | blocking |
+| source quality | Is anything behind it better than anonymous? | weakens |
+| temporal relevance | Is the evidence still current enough? | weakens |
+| numeric consistency | Does every figure stated appear in the evidence? | weakens |
+| overclaiming | Does it assert more than its evidence carries? | weakens |
+| entailment *(optional)* | Does the evidence bear on **this** claim? | blocking |
+
+Two of these catch failures nothing upstream can.
+
+**Numeric consistency** — if a claim states a figure, that figure must appear in
+the evidence behind it, magnitude-normalised so "$12.5M" and "12,500,000" compare
+equal. This is the cheapest defence against the most expensive error a DeFi answer
+can make: a confidently stated number nobody measured. Retrieval cannot catch it
+and grading cannot — the chunk is relevant, the sentence is fluent, and the figure
+is invented.
+
+**Overclaiming** — causal language ("caused by", "due to") and absolutes ("never",
+"guaranteed", "proves") raise the number of independent sources required.
+Causation is a larger assertion than observation, and a system that scores them
+identically will publish the second dressed as the first.
+
+Demonstrated against a deliberately dishonest synthesiser:
+
+| Claim | Verdict | Why |
+|---|---|---|
+| "maintains its peg through arbitrage" | **verified** (0.88) | — |
+| "holds exactly $87,300,000 in reserves" | **partially verified** (0.62) | that figure appears nowhere in the evidence |
+| "the peg is *guaranteed because of* the hedge" | **partially verified** (0.62) | causal claim resting on one source |
+
+Semantic entailment is off by default: one model call per surviving claim, right
+to pay on an investigation someone will act on and wrong to pay every turn. When
+off, the report says so — evidence was verified as present, sourced, current and
+numerically consistent, **but not as actually being about the claim it supports**.
 
 ---
 
@@ -353,105 +464,270 @@ through to the router. A test asserts every declared rule has an exit.
 
 **Source: `llms.txt`, not a scraper.** All three whitelisted protocols publish an
 `llms.txt` index of every doc page and serve clean Markdown at `<url>.md`.
-Discovering from the index means the URL list can't silently drift — the first
-version of this repo hand-curated URLs and one (`/trading/oracle`) was already
-dead. The real page is `/hypercore/oracle`.
+Discovering from the index means the URL list cannot silently drift — the first
+version of this repo hand-curated URLs and one was already dead.
 
 **One index can serve several protocols.** Hyperliquid and HyperEVM share a
 GitBook space and therefore a single `llms.txt`, so discovery fetches it once and
-partitions the URLs by path prefix rather than crawling it twice. `robots.txt` is
-checked before every GET, and the whitelist is re-asserted at fetch time rather
-than only at discovery — the gate has to sit at the last point before the socket,
-not at the first point in the pipeline.
+partitions by path prefix. `robots.txt` is checked before every GET, and the
+whitelist is re-asserted at fetch time rather than only at discovery — the gate
+has to sit at the last point before the socket, not the first point in the
+pipeline.
 
-**Protocol filtering is applied on both retrieval legs, differently.** Chroma
-takes a metadata `where` filter. BM25 has no server and no metadata concept — the
-index *is* the document set — so a filtered query needs its own index over the
-matching subset, cached per protocol combination. Skipping this would leave the
-sparse leg quietly unfiltered and let the wrong chain's chunks back in through
-fusion.
+**Protocol filtering is applied on both legs, differently.** Chroma takes a
+metadata filter. BM25 has no server and no metadata concept — the index *is* the
+document set — so a filtered query needs its own index over the matching subset,
+cached per protocol combination. Skipping this would leave the sparse leg quietly
+unfiltered and let the wrong chain's chunks back in through fusion.
 
-**Heading-aware chunking.** Real Markdown means real `##` boundaries, so chunks
-split on sections and only oversized sections fall back to character splitting.
-Blind character splitting cuts mid-table and strands a fee number from its
-column header. Each chunk carries its `Page > Section` breadcrumb *in the body*,
-so it's embedded and BM25-searchable rather than inert metadata.
+**Heading-aware chunking.** Chunks split on `##` boundaries; only oversized
+sections fall back to character splitting. Blind splitting cuts mid-table and
+strands a fee number from its column header. Each chunk carries its
+`Page > Section` breadcrumb *in the body*, so it is embedded and BM25-searchable
+rather than inert metadata.
 
 **Why hybrid.** Dense retrieval misses exact identifiers users paste verbatim
 (`ALO`, `IOC`, `HLP`, `isolated margin`); BM25 misses paraphrase ("my stop loss
-didn't fill" → `my-tp-sl-did-not-execute-correctly`). Reciprocal-rank fusion
-needs no score normalization between the two, which is why it beats a weighted
-blend — there's no scale to tune, so nothing to re-tune when the embedding model
+didn't fill"). Reciprocal-rank fusion needs no score normalisation between the
+two, so there is no scale to tune and nothing to re-tune when the embedding model
 changes.
 
 **Why a reranker, and why last.** A bi-encoder embeds query and document
-*separately* — cheap enough to index 1091 chunks, blind to query-document
-interaction. A cross-encoder scores the `(query, chunk)` pair jointly: far more
-accurate, far too slow for the full corpus. So the funnel is
-`1091 → 15+15 → RRF → 20 → cross-encoder → 5`. **Recall comes from fusion;
-precision comes from the reranker** — the hybrid-vs-reranked ablation above (flat
-recall, +0.047 MRR) is that division of labour in numbers.
-
-`context_k` defaults to 5 — the quality setting. **Dropping it to 3 is the cost
-lever, and it has now been measured end-to-end against a live key** (see "The
-cost lever, measured" below). The short version: it does roughly what the
-retrieval eval predicted on `recall@k`, and costs answer *completeness* in a way
-`recall@k` cannot see — which is why the default stays at 5.
+separately — cheap enough to index 1,091 chunks, blind to query-document
+interaction. A cross-encoder scores the pair jointly: far more accurate, far too
+slow for the full corpus. The funnel is `1091 → 15+15 → RRF → 20 → rerank → 5`.
+**Recall comes from fusion; precision comes from the reranker.**
 
 Embeddings (`bge-small`) and reranker (`bge-reranker-base`) are both local ONNX —
-no embedding API key, no per-query cost, and the retrieval eval runs free, which
-keeps the iterate-on-chunking loop fast.
+no embedding API key, no per-query cost, and the retrieval eval runs free.
+
+### The Research Agent
+
+The investigation path reuses `hybrid_search` unchanged, because maintaining two
+retrievers and measuring one is how quality quietly diverges. What differs is the
+shape at each end: one question becomes several attacking different angles, and
+retrieved chunks become `Evidence` that a model cites **by number**.
+
+Code resolves those numbers against the evidence actually retrieved.
+Out-of-range citations are dropped, repeats link once, and **a claim left with no
+valid citation is discarded** — not kept at confidence zero. It would score zero
+anyway, but a zero-confidence claim still sits in the record inviting someone to
+read it as a weak finding. It is not a weak finding; nothing supports it.
+
+Two model calls total regardless of how many sub-queries run, because retrieval
+is local and free.
+
+---
+
+## On-chain data
+
+### Provider-agnostic reads
+
+The previous on-chain source was an explorer API. The explorer was rebuilt as a
+web application and its API went with it — so the lesson is not "that host was
+unreliable", it is that a client written *for one host* inherits that host's
+product decisions.
+
+Hosts now live in a registry. Every call returns the value **and the provider that
+served it**, carrying its source tier, so when a weaker provider answers the
+evidence built from it scores lower automatically.
+
+**Shape is validated; status codes are not trusted.** The failure that motivated
+this returned **HTTP 200 with an HTML page**. A status check would have called
+that success, and a lenient parser would have turned it into an empty result —
+which downstream is indistinguishable from "the chain reported nothing unusual".
+
+**Nothing is ever substituted.** No default, no zero, no last-known value. A
+failed read raises and the caller records *not collected*. A repeated stale
+reading would shrink the variance of the baseline it joins, making a series look
+calmer precisely while we have stopped being able to see it.
+
+### The feature store
+
+Anomaly detection is a comparison against a baseline, and a baseline is history —
+so SQLite persists readings over time. Writes are idempotent, because collection
+is scheduled and schedules overlap; a duplicate is not harmless, it doubles that
+value's weight in the baseline it forms part of.
+
+The read API enforces the risk engine's core rule by shape: `prior_history` takes
+the current timestamp as an **exclusive** bound, so a caller cannot accidentally
+include the point being tested. An outlier in its own baseline suppresses its own
+score.
+
+**State history cannot be backfilled.** The public endpoint serves the chain head
+only, so a day not collected is a day gone.
+
+### Metric handling
+
+**Gauge versus cumulative is a correctness question.** A counter sits at its
+all-time high by construction, so scoring one directly produces near-total
+blindness rather than noise. Measured on 30 days of ~1000 tx/day:
+
+| next day | raw counter | as a rate |
+|---|---|---|
+| normal (+1000) | z=+1.76 normal | z=−0.12 normal |
+| 3× surge (+3000) | z=+1.98 **normal** | z=+34.6 critical |
+| 10× surge (+10000) | z=+2.77 elevated | z=+156 critical |
+| **stalls (+5)** | z=+1.64 **normal** | z=−17.4 critical |
+
+**A chain that stops entirely reads normal on the raw counter** — a catastrophic
+miss dressed as an all-clear. Cumulative metrics are differenced into rates before
+scoring. Block height is registered as a counter *deliberately*, because its rate
+is chain liveness: the one thing a counter measures better than a gauge could.
+
+**Mixtures are the same class of error.** HyperEVM interleaves small blocks
+(~1s, 3M gas) with big ones (~60s, 30M gas). Sampled together, transactions per
+block is a mixture of two populations whose variance is dominated by which kind
+was sampled rather than by chain activity — and the severity thresholds were
+calibrated on unimodal data. The two are collected as separate series.
+
+### The contract registry
+
+Reading contract state via `eth_call` needs addresses, which is a whitelist
+decision with the same discipline as the protocol whitelist. But this registry
+differs from every other in one way that matters:
+
+**It can check itself.** An undocumented endpoint has to be taken on faith; a
+contract can be asked what it is. Identity is confirmed against the chain before
+any reading is kept, so a mistyped address, a redeployment or a proxy pointed
+elsewhere stops collection **loudly** rather than producing plausible numbers
+about something else — at the highest reliability tier, where a wrong number does
+most damage. A decimals mismatch names the size of the error.
+
+That property is why contract addresses are admissible where a reverse-engineered
+API endpoint was not. An endpoint inferred from a minified bundle cannot be
+tiered, so it cannot be scored, so a claim resting on it cannot be cited. It fails
+at the schema, not at runtime.
+
+The registry currently holds one verified entry. Its `wrapper_backing_ratio`
+metric is an *invariant* rather than a statistic about activity: a wrapper should
+hold exactly one native coin per wrapped token, so the series should sit at 1.0
+and any sustained departure is under- or over-collateralisation.
+
+Reads that feed a ratio are batched into **one round trip**, matched by id rather
+than position. Sequential reads span two or three blocks by construction, and a
+wrap settling between them would show as a backing deviation that never happened.
+
+---
+
+## The risk engine
+
+Explainable statistics before machine learning — not for simplicity, but because
+a z-score can be printed in a report and argued with. Four decisions distinguish
+it from the textbook version:
+
+- **The baseline excludes the point being tested.** An outlier in its own baseline
+  inflates the standard deviation, so the bigger the anomaly the better it hides.
+- **Robust scores run alongside classical ones.** On a contaminated window the
+  classical score reads |z| < 3 while the median/MAD score reads |z| > 10.
+  Severity takes the worse of the two, and disagreement is surfaced.
+- **Undefined returns undefined.** A constant series has σ = 0 and no z-score
+  exists. Returning `inf`, or 0, or dividing by an epsilon manufactures a finding
+  out of a division.
+- **Short histories are refused.** Below eight observations there is no baseline,
+  and the honest output is "we have not been watching long enough".
+
+`unknown` severity is never `normal`. "We could not tell" and "we checked and it
+is fine" lead to opposite actions, and an unassessable metric reported as normal
+is how a blind spot becomes a clean bill of health.
+
+The anomaly bar sits at 3σ rather than 2σ. Measured: at 2σ, precision was 0.46 —
+every false positive an ordinary ~2σ day, which fires one day in twenty *per
+metric*. Moving to 3σ gave precision 1.00 with no recall lost. `elevated` is still
+surfaced as a reportable state; it just is not a finding.
+
+---
+
+## The evidence graph
+
+The flat record already holds every claim and citation, so the graph has to earn
+its place. It does, in two ways a list structurally cannot.
+
+**It answers "why did you conclude that?" by walking** — claim, to the evidence
+supporting it, to the source that evidence came from. Rebuilt from a checkpoint,
+so the question stays answerable after the fact. Only provenance edges are
+followed: the relationships leading sideways to a protocol or an agent are real,
+but following them would answer *who said it* rather than *what it rests on*.
+
+**It reveals when findings are not independent.** Several pieces of evidence
+converge on one *source* node, so two claims each carrying citations that all
+resolve to one page are revealed as one finding stated twice. That bounds what
+the findings are entitled to claim, and nothing else in the system can see it.
+
+Built per investigation, from the record — a lens over state rather than a second
+store that can drift out of agreement with the first.
+
+---
+
+## Reports
+
+The output is a structured intelligence artifact, rendered **deterministically**.
+A model writing it would be free to smooth over the gaps, and the gaps are the
+most important thing on the page.
+
+An investigation with unmet stages opens:
+
+> **Partial investigation.** … so this assessment covers only what was searched,
+> and is not an answer about the parts that were not.
+
+and closes:
+
+> The strongest finding is well supported and can be relied on as stated
+> (confidence 0.88). This conclusion is bounded by what was searched: no on-chain
+> metric could be scored against a baseline and no security findings were on file
+> to review. **Nothing here speaks to those.**
+
+Every section that could read as reassuring by being empty says why instead. The
+statistics table says "no baseline exists" rather than showing nothing. The
+contradictions section says none were *searched for*. A metric with no history
+shows "no history" rather than its own value as a baseline — which would render
+as a metric sitting exactly on target, the most reassuring row in the table,
+produced by the case where nothing was measured.
+
+Prose and data are rendered from the same record, so a reader and a script cannot
+be told different things. There is a test for exactly that.
 
 ---
 
 ## Evaluation
 
 ```bash
-python -m eval.run_eval --guardrails   # no key
-python -m eval.run_eval --retrieval    # no key; includes reranker ablation
-python -m eval.run_eval --retrieval --k 3
-python -m eval.run_eval --routing      # needs key
-python -m eval.run_eval --answers      # needs key; costs money
+python -m eval.run_eval --offline       # guardrails, retrieval, verification,
+                                        # anomaly, agent selection — no key
+python -m eval.run_eval --routing       # needs key
+python -m eval.run_eval --answers       # needs key; costs money
 ```
 
-Metrics are split by failure mode rather than rolled into one "accuracy",
-because the fixes are unrelated:
+Metrics are split by failure mode rather than rolled into one "accuracy", because
+the fixes are unrelated:
 
 - **Guardrails** — recall must be 1.00; a miss is a drained wallet. False
-  positives are the price, and are measured against 180 benign queries rather
-  than assumed away.
-- **Retrieval (recall@k, MRR@k)** — the *ceiling* on answer quality. The
-  generator cannot cite what retrieval never returned, so a regression here
-  stays invisible in end-to-end scoring until wrong answers already ship. This
-  is why it's scored separately and offline.
-- **Routing** — reported as a confusion matrix, not a scalar, because the errors
-  are asymmetric: `docs → account_action` is a wasted handoff;
-  `account_action → docs` is the agent improvising about someone's funds. The
-  harness reports that specific leak count separately.
-- **Protocol** — scored as its own axis, since a question can route to the right
-  branch and still be answered from the wrong chain's docs. Three numbers, each
-  for a distinct failure: protocol-set exact match; *non-whitelisted keys
-  emitted* (a hallucinated key filters retrieval to nothing, so the agent says
-  "no docs" for a protocol it advertises); and *off-whitelist not refused* — the
-  ten `off_protocol` cases that must land in `out_of_scope` rather than being
-  answered out of the protocols we happen to have.
-- **Answers (faithfulness, quality)** — only meaningful once the four above hold.
-
-**Faithfulness follows the RAGAS decomposition** (`eval/judge.py`): extract atomic
-claims from the answer, then check each against the excerpts, and report
-supported/total. Asking a judge "is this answer good?" in one shot is answered
-partly by the judge's own prior — which is the exact failure being measured.
-Decomposition forces per-claim evidence. A refusal scores 1.0: it cannot
-hallucinate.
+  positives are the price, measured against 180 benign queries rather than
+  assumed away.
+- **Retrieval** — the *ceiling* on answer quality. The generator cannot cite what
+  retrieval never returned, so a regression stays invisible in end-to-end scoring
+  until wrong answers already ship.
+- **Routing** — a confusion matrix, because the errors are asymmetric.
+- **Protocol** — its own axis: exact match, hallucinated keys, and off-whitelist
+  cases that must land in `out_of_scope`.
+- **Verification** — claim accuracy, and the asymmetric one: **false verification
+  rate**. A verification stage that misses a bad claim is worse than none, because
+  its approval is treated downstream as a reason to trust the claim.
+- **Anomaly detection** — three difficulty tiers, because the first version
+  measured nothing (see [Corrections](#corrections)). ROC-AUC asks whether the
+  score *ranks* anomalies above ordinary days regardless of threshold, which is
+  the property that survives recalibration.
+- **Answers** — only meaningful once the others hold. Faithfulness follows the
+  RAGAS decomposition: extract atomic claims, check each against the excerpts,
+  report supported/total. Asking a judge "is this good?" in one shot is answered
+  partly by the judge's own prior — which is the exact failure being measured.
 
 ---
 
 ## Production texture
 
-**Instrumentation is built in, not bolted on.** `src/obs/metrics.py` wraps every
-node for wall time and attributes each LLM call's tokens and cost to the node
-that made it, via a callback handler. `/stats` in the CLI prints the last turn —
-here is a real one (`context_k=5`, Opus 4.8, warm process, docs question):
+`src/obs/metrics.py` wraps every node for wall time and attributes each model
+call's tokens and cost to the node that made it. `/stats` prints the last turn:
 
 ```
 stage         calls    ms    in_tok  out_tok    usd
@@ -460,84 +736,38 @@ retrieve          0   8314        0        0  0.0000
 generate          1   7504     2053      649  0.0265
 verify            1   4311     3021      301  0.0226
 route             1   2762     1318      120  0.0096
-finalize          0      0        0        0  0.0000
-guard             0      0        0        0  0.0000
 TOTAL             8  38030    11137     1750  0.0994
 ```
 
-**The structural prediction the harness existed to test held: `grade` dominates
-cost** — $0.041 of a $0.099 turn, from 5 LLM calls (one per chunk), while every
-other stage makes one call or none. `retrieve` shows `0` calls because it is pure
-local compute; its wall time is the cross-encoder reranking on CPU. (`retrieve`'s
-*first*-query time is ~2.5× higher — one-time cold-start as the ONNX embedding and
-reranker models load — so latency is read warm.)
+**`grade` is 43% of turn cost** — one model call per chunk, so it scales with
+`context_k` rather than with question count.
 
-Two instrumentation bugs surfaced the moment this ran against a real key, both
-now fixed: the metrics `Report` was a graph-**state** channel, so LangGraph
-serialized per-turn telemetry into the conversation checkpoint (a msgpack
-deprecation warning today, a hard error under strict serialization — it would
-have broken `--persist`); and `calls` counted node executions, so `grade` read as
-`1` while making `5`, hiding the exact per-chunk cost the table exists to show.
-The report now travels through a contextvar, and `calls` is counted in the LLM
-callback. Both are pinned by `tests/test_metrics.py`.
+**The cost lever, measured.** Dropping `context_k` 5→3 cut grade cost 39% and
+turn cost 22% — but dropped real answer content, losing a payment formula and a
+rate cap that lived in the rank-4 chunk. `recall@k` scored both as hits, because
+it measures page-level retrieval and cannot see completeness loss. That gap is
+why the default stays at 5.
 
-#### The cost lever, measured
+### What breaks at 10×
 
-`context_k=3` was the standing "if grade is too expensive" answer. Running it
-live, same question (`How is funding calculated on Hyperliquid?`), turns it from a
-slogan into a tradeoff with a number on each side:
-
-| | k=5 | k=3 | Δ |
-|---|---|---|---|
-| `grade` cost | $0.0407 | $0.0249 | **−39%** |
-| `grade` calls | 5 | 3 | −40% |
-| turn cost | $0.0994 | $0.0780 | −22% |
-
-The cost side matches the ablation's prediction almost exactly. **But the answer
-changed, and `recall@k` could not see it.** At k=5 the answer included the funding
-*payment* formula (`position_size × oracle_price × funding_rate`), the 4%/hour
-cap, and the HIP-3 premium formula — all from a chunk that ranks 4th–5th. At k=3
-that chunk falls below the cut, and the answer honestly says *"the excerpts don't
-include the details"* — grounded, not hallucinated, but materially less complete.
-
-`recall@k` scored this question a **hit at both k=3 and k=5**, because it asks
-"was the right *page* retrieved," not "were all the relevant *chunks* retrieved."
-So the lever looks free on the metric and is not free in the answer. **That is the
-measured reason `context_k` defaults to 5**, and a concrete demonstration of why
-retrieval recall is a ceiling on answer quality, not a proxy for it.
-
-**Conversation state.** `--persist` swaps `MemorySaver` for LangGraph's
-`SqliteSaver`, so threads survive restarts; `--thread <id>` resumes one.
-
-**Tracing.** LangSmith is opt-in via env and degrades to a no-op
-(`src/obs/tracing.py`) — the agent never fails because observability is down.
-It earns its slot here: when an answer escalates, the question is *which* stage
-gave up. Retrieval returned nothing? Grader rejected good chunks? Verifier
-rejected a fine answer? A trace shows the tree; a log line shows
-`escalated: ungrounded`.
-
-### What breaks at 10x
-
-- **SQLite checkpointer pins a thread to one box.** First thing to go behind a
-  load balancer; swap for the Postgres checkpointer.
-- **`grade` is N LLM calls per turn.** Confirmed the dominant cost stage against a
-  live key (43% of turn cost, one call per chunk). It grows with `context_k`.
-  Batch it into one call, move it to Haiku, or take `context_k=3` — the last is
-  measured at −39% on grade but drops real answer content (see "The cost lever,
-  measured"), so it is a quality tradeoff, not a free win.
-- **BM25 is rebuilt in-process from a JSONL mirror at first query.** Fine for 1091
-  chunks; it's O(corpus) memory per worker and O(corpus) startup. At 10x, move
-  lexical search server-side (Elasticsearch/OpenSearch) or use Chroma's native
-  full-text index.
+- **`grade` is the cost driver.** Batch it into one call, move it to a smaller
+  model, or reduce `context_k` — the last is a quality tradeoff, not a free win.
+- **BM25 is rebuilt in-process from a JSONL mirror.** Fine for 1,091 chunks; it is
+  O(corpus) memory per worker and O(corpus) startup. At 10× move lexical search
+  server-side.
 - **The index is a build artifact with no freshness signal.** Docs change; the
   agent will confidently cite a stale fee tier. Needs scheduled re-ingest with
-  content hashing, and ideally a staleness check against `llms.txt`.
-- **No cache.** Support traffic is extremely head-heavy — a semantic cache on the
-  top ~100 questions would likely cut cost per conversation substantially before
-  any model-tier change is needed.
-- **Guardrail regexes are English-only.** Coinbase CX is multilingual; the same
-  seed-phrase attack in Portuguese sails straight through to the router. This is
-  the most important gap in the design as it stands.
+  content hashing.
+- **No cache.** Traffic is head-heavy — a semantic cache on the top ~100 questions
+  would likely cut cost per conversation substantially before any model-tier
+  change is needed.
+- **Guardrail regexes are English-only.** The same seed-phrase attack in
+  Portuguese sails straight through to the router. This is the most important gap
+  in the design as it stands.
+- **SQLite checkpointing pins every conversation thread to one box.** Postgres is
+  the obvious next step behind a load balancer.
+- **Investigations are synchronous.** Making this a service needs background
+  execution and status polling; the report already serialises as structured JSON.
 
 ---
 
@@ -553,157 +783,246 @@ src/
     http.py  robots.py     shared client; robots.txt gate
     fetch.py               fetch + clean Markdown, whitelist-enforced
     chunk.py               heading-aware chunking, tags each chunk `protocol`
-    build_index.py         entrypoint (--protocol KEY for incremental re-crawl)
+    build_index.py         entrypoint (--protocol, --verify, --repair)
   retrieval/
-    store.py               Chroma + local FastEmbed, corpus mirror for BM25
+    store.py               Chroma + local FastEmbed, corpus mirror, drift checks
     retriever.py           hybrid search + RRF -> rerank, protocol-filtered
     rerank.py              local cross-encoder
+  evidence/
+    models.py              Evidence, Claim, tiers, claim kinds, agent competence
+    confidence.py          the reliability matrix and the scoring model
+    graph.py               evidence graph, traversal, independence analysis
+  risk/
+    statistics.py          baselines, z-scores, robust scores, change points
+    signals.py             severity bands, risk signals, deterministic explanation
+  intelligence/
+    query_types.py         the depth axis and its safety clamp
+    plan.py                deterministic investigation planning
+  agents/
+    research.py            §8  decompose -> retrieve -> extract -> link claims
+    blockchain.py          §9  readings paired with their own history
+    security.py            §10 incident registry + protocol security docs
+    verification.py        §13 six checks; the stage that removes output
+  blockchain/
+    rpc.py                 provider-agnostic JSON-RPC, shape-validated, batched
+    abi.py                 minimal encode/decode for standard read functions
+    contracts.py           contract whitelist + on-chain self-verification
+    features.py            metric registry, gauge/cumulative, block classification
+    store.py               SQLite feature store; prior_history excludes the point
+    collect.py             scheduled collection (--dry-run, --coverage)
+  security/
+    incidents.py           four classifications that must never be merged
+    registry.jsonl         curated findings; ships empty on purpose
+  reports/
+    intelligence_report.py the §15 artifact, prose and structured, same record
   tools/
-    hyperliquid.py         read-only market data (mark, funding, OI)
-    hyperevm.py            read-only Blockscout explorer (stats, address, search)
-                           (Ethena has no live tool -> live_data refuses honestly)
-  obs/
-    metrics.py             per-node latency + token/cost attribution
-    tracing.py             LangSmith (opt-in, no-op by default)
+    hyperliquid.py         read-only market data
+    hyperevm.py            read-only chain state over JSON-RPC
+  obs/                     per-node latency + token/cost attribution; tracing
   graph/
-    state.py  prompts.py  nodes.py  build.py
+    state.py  prompts.py  nodes.py  build.py  investigation.py
   app.py                   CLI (--persist, --thread, /stats)
 eval/
   golden.jsonl             218 cases incl. 38 adversarial, 10 off-whitelist,
                            6 vocabulary-collision pairs
-  judge.py                 RAGAS-style faithfulness + quality
-  run_eval.py              guardrails | retrieval | routing | answers
-tests/                     195 tests, no API calls
+  verification.jsonl       18 labelled cases across 15 failure modes
+  intelligence.py          verification, anomaly tiers, agent selection
+  judge.py                 RAGAS-style faithfulness
+  run_eval.py              5 free harnesses + 2 paid
+tests/                     875 tests, no API calls
+docs/                      build log and project summary
 ```
 
-### Adding a protocol
+---
+
+## Adding a protocol
 
 `src/protocols.py` is the only file that names one. An entry declares the docs
-entrypoint, the domains crawling is allowed to touch, the path prefixes that
-disambiguate it from protocols sharing a domain, and an optional live-data tool
-key. Everything downstream reads from there: the crawler's whitelist, the chunk
-`protocol` tag, the retrieval filter, the router prompt's catalog, live-tool
-dispatch, and the agent's own description of what it covers.
+entrypoint, the domains crawling may touch, the path prefixes that disambiguate
+it from protocols sharing a domain, and an optional live-data tool key.
+Everything downstream reads from there.
 
 **The whitelist is a security boundary, not a convenience.** Crawling arbitrary
 crypto sites is how an assistant ends up indexing a phishing clone of a docs page
-and citing it as authoritative — in DeFi that drains a wallet. `assert_allowed`
-runs before every fetch, and domain matching is on label boundaries, so
-`gitbook.io.evil.com` does not match `gitbook.io`.
+and citing it as authoritative. `assert_allowed` runs before every fetch, and
+domain matching is on label boundaries, so `gitbook.io.evil.com` does not match
+`gitbook.io`.
 
-The one non-obvious part is `path_prefixes`, and it has already bitten once:
-HyperEVM shares a GitBook space with Hyperliquid, and its docs are *not* under a
-single root — reference pages sit under `for-developers/`, user-facing ones under
-`onboarding/` and `support/`. The initial prefix caught one page out of fifteen,
-so eleven HyperEVM pages were tagged `hyperliquid` and a protocol-filtered
-HyperEVM search could not see them. Nothing failed loudly; recall just sat lower
-than it should have. `tests/test_protocols.py` now pins every branch, and pins
-the sibling pages that must *not* be swept in.
+The non-obvious part is `path_prefixes`, and it has already bitten. HyperEVM
+shares a GitBook space with Hyperliquid and its docs are *not* under a single
+root. The initial prefix caught one page out of fifteen, so eleven HyperEVM pages
+were tagged `hyperliquid` and a protocol-filtered search could not see them.
+Nothing failed loudly; recall just sat lower than it should have.
 
-#### What onboarding the third protocol actually cost
+### What onboarding the third protocol cost
 
-Ethena needed **no new ingestion code** — it publishes `llms.txt` in the same
-shape as Hyperliquid, so the registry entry and a re-index were the whole feature.
-What it did was surface three latent defects, two of which had been sitting in the
-codebase since the previous PR:
+Ethena needed **no new ingestion code**. What it did was surface three latent
+defects, two of which had been sitting in the codebase for a release:
 
 1. **Silent wrong-protocol substitution.** Ethena is the first protocol with no
-   live-data tool. `_pick_live_protocol` skipped tool-less protocols and fell
-   through to the Hyperliquid default, so "what's the current sUSDe APY?" would
-   have returned a Hyperliquid perps quote — real, current, correctly formatted,
-   wrong protocol, with nothing in the wording admitting the substitution. The
-   "no live source" refusal branch existed but was unreachable. This is the worst
-   failure mode in the system and it was one protocol away from shipping.
+   live-data tool. The picker skipped tool-less protocols and fell through to a
+   default, so "what's the current sUSDe APY?" would have returned a Hyperliquid
+   perps quote — real, current, correctly formatted, wrong protocol, with nothing
+   in the wording admitting the substitution. The refusal branch existed but was
+   unreachable.
 
-2. **Golden labels that silently stopped meaning anything.** `expect_source` is
-   matched by substring, and thirteen cases used fragments — `liquidat`, `margin`,
-   `stak`, `oracle`, `risks`, `onboarding` — that were unambiguous for as long as
-   one protocol owned the vocabulary. Ethena has `risks/liquidation-risk`,
-   `risks/margin-collateral-risks`, `staking-usde`, `use-of-oracles`. A retriever
-   returning Ethena's liquidation page for a *Hyperliquid* liquidation question
-   would have scored **correct** — the wrong-protocol failure hiding inside the
-   metric built to detect it. Now enforced by
-   `test_expect_source_is_not_ambiguous_across_protocols`.
+2. **Golden labels that silently stopped meaning anything.** Thirteen cases used
+   substring fragments — `liquidat`, `margin`, `stak`, `oracle` — that were
+   unambiguous only while one protocol owned the vocabulary. A retriever returning
+   Ethena's liquidation page for a *Hyperliquid* liquidation question would have
+   scored **correct**: the wrong-protocol failure hiding inside the metric built
+   to detect it.
 
 3. **A matcher that could not express the case.** `.../onboarding` is a prefix of
    `.../onboarding/how-to-use-the-hyperevm`, which belongs to a different
-   protocol, so no substring could mean "this landing page, not its children". A
-   leading `=` now selects exact-suffix matching, shared between the eval and its
-   tests so the two cannot drift. The alternative — rewriting the question to suit
-   the matcher — would have quietly corrupted the measurement.
+   protocol. A leading `=` now selects exact-suffix matching. The alternative —
+   rewriting the question to suit the matcher — would have quietly corrupted the
+   measurement.
 
-The pattern worth taking away: **each of these was invisible while one protocol
-dominated, and none of them failed loudly when it broke.** They showed up as a
-slightly lower recall number, or as no signal at all. That is the argument for
-per-protocol metrics and for schema tests over the eval set itself.
+**Each of these was invisible while one protocol dominated, and none failed
+loudly.** They showed up as a slightly lower recall number, or as no signal at
+all. That is the argument for per-protocol metrics and for schema tests over the
+eval set itself.
 
-**Corpus hygiene also scales differently than expected.** Ethena's `llms.txt`
-lists four legal documents — Terms of Service, USDe T&C, Mint User Agreement,
-Privacy Policy — plus a risk-disclosure statement. Together they were **151 of
-578 chunks, 26% of the protocol's corpus**: dense formal prose that competes for
-retrieval on generic terms (`risk`, `collateral`, `redemption`) while containing
-no mechanics, and that can never be a correct answer anyway because `TAX_LEGAL`
-refuses legal questions *before* retrieval runs. `_EXCLUDE` now drops them by
-pattern rather than by path, so future protocols inherit it. The pattern is
-`risk-disclosures`, not `risk` — Ethena's `protocol-overview/risks/*` pages are
-the substance behind six collision cases, and a looser rule would have deleted
-exactly what this protocol was added to test.
+**Corpus hygiene scales differently than expected.** Ethena's `llms.txt` lists
+four legal documents plus a risk-disclosure statement — **151 of 578 chunks, 26%
+of the protocol's corpus**: dense formal prose that competes for retrieval on
+generic terms while containing no mechanics, and that can never be a correct
+answer anyway because the tax/legal guardrail refuses those questions *before*
+retrieval runs. The exclusion pattern is `risk-disclosures`, not `risk` — the
+`protocol-overview/risks/*` pages are the substance behind six collision cases,
+and a looser rule would have deleted exactly what this protocol was added to test.
+
+---
+
+## Corrections
+
+Measured claims that turned out to be wrong, recorded rather than quietly
+overwritten. This section is the most useful part of the repository.
+
+**The protocol filter's recall claim was an artifact — retracted.** This README
+previously said the filter was "worth +0.031 recall on its own", measured at 35.2%
+unfiltered leakage. On a clean index it is worth **+0.000**, and leakage is 6%.
+
+The vector store had accumulated **1,157 orphaned chunks against 1,091 live
+ones** — `Chroma.from_documents` upserts by id, so every id that changed between
+rebuilds survived forever, including the entire pre-namespacing corpus. Because
+most orphans were *untagged*, the metadata filter excluded them from filtered runs
+while unfiltered runs retrieved them freely. The ablation was not comparing
+filtered against unfiltered search over one corpus; it was comparing a clean
+corpus against a junk-laden one and crediting the difference to the filter.
+
+The filter still earns its place — as a *guarantee* (0 of 131 cases pull a
+wrong-protocol chunk, versus 25) rather than a lift.
+
+**The cross-encoder was doing more than credited.** Same repair, opposite
+direction: MRR contribution +0.047 → **+0.091**, recall +0.008 → **+0.023**.
+Fusion's own MRR *fell* on the clean index, because the orphans were duplicate
+copies of correct pages padding its top ranks for free.
+
+**A same-run ablation is only as trustworthy as the index underneath it.** Both
+ablations were internally consistent — one process, one corpus, one question set —
+and one still measured an artifact for months. `build_index --verify` now
+reconciles the two stores by `doc_id`, using set logic that ignores metadata
+precisely so it can catch rows no metadata filter could reach.
+
+**The confidence model shipped compensatory.** A five-factor geometric mean cannot
+fall below ≈0.55 when one term is 0.05, so a refuted claim still reported as
+moderately confident. Verification became a gate.
+
+**Cumulative counters are blind, not noisy — and the stated reason was
+backwards.** The original justification was that a raw counter would alarm
+constantly. It does the opposite: pinned near +1.7σ whatever happens, so a chain
+that stops entirely reads normal.
+
+**Claim kind was agent identity in disguise.** Every claim's kind was hardcoded
+per agent, putting agent back into the weighting immediately after it had been
+deliberately kept out of claim identity — and wrongly: a documentation page
+stating a current value would have scored documentation at 1.00 in the one row
+where it is weakest.
+
+**The compensatory failure, relocated.** Reliability was a maximum within tier,
+but evidence quality was additive — so twenty chain observations scored 0.891
+against a documentation source's 0.880 on a claim about mechanism.
+
+**The first anomaly benchmark measured nothing.** Anomalies sat ~15σ from
+baseline, so every metric including ROC-AUC read 1.000. A benchmark whose ceiling
+is reached by any working implementation cannot distinguish a good detector from
+an adequate one.
+
+**Twenty-three defects total.** Seven were pre-existing and silent, ten introduced
+during development and caught by tests before shipping, six were design flaws —
+three caught by tests, three by review. Every one of the pre-existing ones had
+passing unit tests over the code that contained it.
+
+---
+
+## Deliberate constraints
+
+Things that look like gaps and are decisions.
+
+**The security incident registry ships empty.** An entry labelled
+`confirmed_incident` is trusted by everything downstream. Populating it from a
+model's recollection would put potentially defamatory content about real protocols
+behind that label. Every entry needs a citation an operator has read. Until then
+the agent says nothing is *on file* — which is not the same as nothing having
+*happened*, and it says that too.
+
+**The contract registry has one entry.** Only what could be verified on chain.
+Widening it means addresses from citable sources, after which `--verify` confirms
+each.
+
+**Placeholders refuse rather than reassure.** An unimplemented check returning
+"nothing found" would be indistinguishable downstream from a real negative
+finding, and strictly more confident than the evidence permits.
+
+**No new dependencies.** The statistical engine uses the standard library; the
+feature store is SQLite; the evidence graph is adjacency dictionaries. Nothing was
+added that a specific requirement did not force.
 
 ---
 
 ## Honest limitations
 
-- **Answer faithfulness is the one node still un-eval'd at scale.** `route` is now
-  measured across 180 cases (see Routing); `grade`, `generate`, `verify` have been
-  exercised interactively against a live key and `/stats` gave real per-stage
-  latency/cost. What hasn't run is the *aggregate* `--answers` RAGAS-style judge,
-  so answer faithfulness is still single-observation, not measured across the set.
-  Routing accuracy is also agreement-with-my-labels, not ground truth — the router
-  and the golden intents share an author.
-- **`langchain-community` is sunsetting** (BM25/Chroma/FastEmbed wrappers emit a
-  deprecation warning). Migrating to `langchain-chroma` + direct `rank_bm25` is
-  the obvious next step.
-- **Six known retrieval misses at k=5**, and three of them are arguably my labels
-  rather than the retriever. "What does IOC mean?" ranks `api/exchange-endpoint`
-  above `trading/order-types` — both document IOC and the API page is denser in
-  the term. "How do I get a fee discount?" returns `referrals` over
-  `trading/fees`, which genuinely documents referral fee discounts. "How do I
-  connect my wallet?" returns the connection-*troubleshooting* FAQ rather than
-  the onboarding page, which is right if the asker is stuck and wrong if they are
-  starting out. "I deposited fiat and nothing arrived" lands on the withdrawal
-  FAQ. And `doc-084` ("can a HyperEVM contract use my Hyperliquid spot balance?")
-  returns the HyperEVM landing page instead of `interacting-with-hypercore` — the
-  only cross-protocol miss and the one that most deserves a real fix.
-- **Golden labels have been wrong more often than the retriever.** `/trading/oracle`
-  didn't exist; withdrawal fees live in `how-to-start-trading`, not `trading/fees`;
-  `doc-060` matched the bare string `hyperevm` and scored a hit on any page in the
-  section; `eth-001` expected `how-usde-works` for "What is USDe?" when
-  `ethena-overview` opens by defining it. Each was corrected only after checking
-  the retrieved page actually answered the question. **The discipline that matters
-  here is not relabelling everything that looks defensible after seeing the
-  results** — `doc-005` and `doc-052` above are left as misses for exactly that
+- **Answer faithfulness is the one node still un-eval'd at scale.** `route` is
+  measured across 180 cases; `grade`, `generate` and `verify` have been exercised
+  interactively against a live key. What has not run is the aggregate `--answers`
+  judge. Routing accuracy is also agreement-with-my-labels, not ground truth — the
+  router and the golden intents share an author.
+- **Risk thresholds and verification cases are synthetic.** Real labelled
+  incidents would replace both generators, and the thresholds are uncalibrated
+  wherever severity is shown.
+- **Routing has not been re-measured** since the depth axis was added to the
+  router's output. Intent accuracy may have moved.
+- **Guardrails are English-only.** The largest remaining gap in the design.
+- **Three protocols is a real test of collision, not of scale.** All three publish
+  `llms.txt` in the same GitBook dialect, so ingestion has never faced a
+  differently-shaped site, and no two *independent* protocols yet share a term the
+  way Aave and Morpho share "health factor".
+- **Only one of three ingestion strategies is implemented.** `GITBOOK` and
+  `SITEMAP` HTML extraction raise `NotImplementedError`. Aave was evaluated as a
+  third protocol and rejected precisely because its `llms.txt` is an SPA fallback
+  that returns HTML.
+- **Four known retrieval misses at k=5**, and some are arguably labels rather than
+  the retriever. "What does IOC mean?" ranks the API page above `trading/order-types`
+  — both document IOC and the API page is denser in the term.
+- **Golden labels have been wrong more often than the retriever.** Each was
+  corrected only after checking the retrieved page actually answered the question.
+  **The discipline that matters is not relabelling everything that looks
+  defensible after seeing results** — two cases are left as misses for exactly that
   reason. An eval you edit to agree with you has stopped being one.
-- **Guardrails are English-only** (see 10x section). This is now the largest
-  remaining gap in the design.
-- **Three protocols is a real test of collision, not of scale.** Ethena supplied
-  genuinely colliding vocabulary and the filter handled it 6/6. But all three
-  protocols publish `llms.txt` in the same GitBook dialect, so ingestion has never
-  faced a site shaped differently, and no two *independent* protocols yet share a
-  term the way Aave and Morpho share "health factor".
-- **Only one of three ingestion strategies is implemented.** `SourceType.GITBOOK`
-  and `SITEMAP` HTML extraction raise `NotImplementedError`; all three whitelisted
-  protocols publish `llms.txt`. Aave was evaluated as the third protocol and
-  rejected for this PR precisely because its `llms.txt` is an SPA fallback that
-  returns HTML — onboarding it means writing the extractor first, which is the
-  point at which BeautifulSoup enters the dependency list.
-- **`settings.collection` is still `hyperliquid_docs`.** It is an internal Chroma
-  collection name holding three protocols now. Renaming it orphans the index and
-  forces a full re-crawl for a cosmetic gain, so it stayed.
-- **The k=3 *retrieval* ablation predates Ethena** (last measured 0.945 vs 0.954
-  on the two-protocol corpus). Its end-to-end cost/quality tradeoff, however, was
-  measured live post-Ethena — −39% on grade, at the price of real answer content
-  (see "The cost lever, measured"). The offline recall number is the stale one;
-  the shipped default (k=5) rests on the live finding.
-- **No on-chain tooling beyond market data and explorer reads.** Bridge deposit
-  status by tx hash would be the natural next tool, and would make "where is my
-  deposit" answerable rather than escalatable.
+- **Decomposition's effect on answer quality is unmeasured.** It triples the
+  evidence surface; whether that helps is not known.
+- **`langchain-community` is sunsetting.** Migrating to `langchain-chroma` and
+  direct `rank_bm25` is the obvious next step.
+- **`settings.collection` is still `hyperliquid_docs`.** An internal Chroma name
+  holding three protocols; renaming orphans the index for a cosmetic gain.
+
+---
+
+## Further reading
+
+- [`docs/PROJECT-SUMMARY.md`](docs/PROJECT-SUMMARY.md) — what the project is for,
+  where it came from, and every measured parameter with its caveats.
+- [`docs/build-log.html`](docs/build-log.html) — the phase-by-phase engineering
+  record: decisions, measurements and defects at each step.

@@ -109,6 +109,10 @@ def _run(graph, args, traced: bool) -> None:
         last = report
 
         trace = f"intent={state.get('intent') or '-'}"
+        # Only worth showing when it changed the path taken; printing "cx" on
+        # every ordinary turn is noise.
+        if (qt := state.get("query_type")) and qt != "cx":
+            trace += f"  investigation={qt}"
         if state.get("guardrail_rule"):
             trace += f"  guardrail={state['guardrail_rule']}"
         if state.get("escalation_reason"):

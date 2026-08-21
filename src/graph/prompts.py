@@ -28,7 +28,39 @@ intent to out_of_scope instead.
 Volatile data — prices, funding, TVL, contract addresses, governance — is ALWAYS
 live_data, never docs: scraped docs go stale and would be confidently wrong.
 "How is funding calculated on Hyperliquid?" is docs. "What's ETH funding right
-now?" is live_data."""
+now?" is live_data.
+
+(3) query_type — how much investigation the question needs. This is a SEPARATE
+axis from intent. Intent says whether we may answer at all; query_type says how
+deeply we look when we may.
+
+- cx: an ordinary support question, answered by documentation or a single live
+  lookup. "How is funding calculated?", "What's ETH funding right now?",
+  "Why was my stop loss not filled?"
+- research: needs documented context assembled from several angles — history,
+  governance, architecture — rather than one passage. "How has this protocol's
+  collateral policy changed over time?"
+- blockchain_analysis: asks whether on-chain BEHAVIOUR is unusual, which means
+  comparing current activity against its own history. "Has there been unusual
+  activity involving this protocol over the last 30 days?"
+- security_analysis: asks about vulnerabilities, exploits, past incidents, or
+  audit findings for a protocol.
+- risk_assessment: asks for a judgement about exposure or safety that spans both
+  on-chain behaviour and security posture.
+- full_investigation: an open question about a protocol's current standing that
+  no single source answers. "Is Protocol X currently showing any significant
+  security or financial risk?"
+
+DEFAULT TO cx. Most support traffic is cx, and running an investigation for a
+question the documentation already answers is slower and more expensive without
+being more correct. Choose an investigation type only when the question genuinely
+cannot be answered by looking something up — that is, when answering it requires
+comparing data against a baseline, correlating separate sources, or reaching a
+judgement the documentation does not state.
+
+A question asking to "investigate", "look into", or "analyse" something that is
+nonetheless a plain lookup is still cx. Phrasing does not decide this; what the
+question requires does."""
 
 GRADER = """You filter retrieved documentation chunks for a support agent.
 

@@ -12,6 +12,7 @@ from src.config import settings
 from src.graph import prompts
 from src.graph.state import AgentState, Intent
 from src.guardrails import rules
+from src.intelligence.query_types import QueryType, effective_query_type
 from src.obs.metrics import timed
 from src.protocols import (
     Protocol,
@@ -42,12 +43,27 @@ def _is_docs_failure(reason: str) -> bool:
 
 
 class Routing(BaseModel):
+    """The router's three axes, decided in ONE model call.
+
+    `query_type` rides along with intent and protocols rather than getting its
+    own classifier node, and that is a cost decision made against a measured
+    profile: the router is already the cheapest LLM stage while `grade` is 43% of
+    a turn's cost, so a second classification call would add a per-turn charge to
+    every question — including the CX questions whose answer is "no
+    investigation needed". The three axes are also decided from the same reading
+    of the same sentence, so splitting them buys no independence, only latency.
+    """
+
     intent: Intent = Field(description="The single best-fitting intent")
     protocols: list[str] = Field(
         default_factory=list,
         description="Whitelisted protocol keys the question concerns; [] if general",
     )
     coin: str | None = Field(None, description="Ticker, set only for live_data")
+    query_type: QueryType = Field(
+        default=QueryType.CX,
+        description="How much investigation the question needs; default cx",
+    )
     reason: str = Field(description="One sentence justifying the choice")
 
 
@@ -96,14 +112,27 @@ def _format_context(docs: list[Document]) -> tuple[str, list[str]]:
     return "\n\n---\n\n".join(blocks), citations
 
 
-def _reply(state: AgentState, answer: str) -> dict:
+def _reply(state: AgentState, answer: str, question: str | None = None) -> dict:
+    """Terminal reply: commit this turn's exchange to conversation history.
+
+    `question` overrides which text is logged as the user's turn, and exists for
+    `guard`. Everywhere else, `guard` has already written `original_question` for
+    the current turn before the node runs, so reading it back is correct — it
+    recovers the user's real wording after `rewrite` has replaced `question` with
+    a re-phrased query.
+
+    `guard` is the exception because it runs BEFORE its own return is applied.
+    Under a checkpointer, `original_question` still holds the PREVIOUS turn's
+    value at that moment, so a guardrail hit on turn 2+ would log the previous
+    question against this turn's refusal — quietly corrupting the transcript of
+    exactly the safety-critical turns anyone would later audit.
+    """
+    if question is None:
+        question = state.get("original_question", state["question"])
     return {
         "answer": answer,
         "citations": [],
-        "messages": [
-            HumanMessage(state.get("original_question", state["question"])),
-            AIMessage(answer),
-        ],
+        "messages": [HumanMessage(question), AIMessage(answer)],
     }
 
 
@@ -112,21 +141,33 @@ def _reply(state: AgentState, answer: str) -> dict:
 
 @timed
 def guard(state: AgentState) -> dict:
-    """Deterministic pre-router gate. See src/guardrails/rules.py for why."""
+    """Deterministic pre-router gate. See src/guardrails/rules.py for why.
+
+    Seeds `query_type` to CX alongside `attempts`, so the key is present on every
+    path. A guardrail hit terminates before `route` ever runs, and a downstream
+    consumer reading the classification off a refused turn should find "no
+    investigation" rather than a missing key — the safest reading of a turn the
+    router never saw is the cheapest one.
+    """
     hit = rules.check(state["question"])
-    if hit is None:
-        return {
-            "guardrail_rule": None,
-            "guardrail_action": None,
-            "original_question": state["question"],
-            "attempts": 0,
-        }
-    return {
-        "guardrail_rule": hit.rule,
-        "guardrail_action": hit.action,
+    # Everything here is per-TURN state. State channels are last-write-wins and
+    # survive in the checkpoint, so anything not reset at the start of a turn
+    # leaks into the next one: without clearing `escalation_reason`, every turn
+    # after an escalation still reports itself as escalated in the CLI trace and
+    # in any log built from it.
+    seed = {
         "original_question": state["question"],
         "attempts": 0,
-        **_reply(state, hit.message),
+        "query_type": QueryType.CX.value,
+        "escalation_reason": None,
+    }
+    if hit is None:
+        return seed | {"guardrail_rule": None, "guardrail_action": None}
+    return seed | {
+        "guardrail_rule": hit.rule,
+        "guardrail_action": hit.action,
+        # Explicit: `original_question` in `state` is still the previous turn's.
+        **_reply(state, hit.message, question=state["question"]),
     }
 
 
@@ -143,6 +184,11 @@ def route(state: AgentState) -> dict:
         "intent": result.intent,
         "protocols": _known_protocols(result.protocols),
         "coin": result.coin,
+        # Clamped here, once, rather than by every downstream consumer
+        # remembering to consult `intent` first. See `effective_query_type`.
+        # `.value` because state channels are checkpointed through msgpack; see
+        # AgentState.query_type.
+        "query_type": effective_query_type(result.intent, result.query_type).value,
     }
 
 
@@ -285,52 +331,53 @@ def _explorer_url(path: str) -> str:
     return f"{settings.hyperevm_explorer.rstrip('/')}{path}"
 
 
+_NO_SEARCH_MSG = (
+    "I can't look up a token or contract by name on HyperEVM — I read the chain "
+    "directly, and the chain has no name index. If you paste the contract "
+    "address (0x…), I can tell you its balance and whether it holds code.\n\n"
+    "To be clear about what that means: I'm not saying no contract matches "
+    "{name!r}. I'm saying I have no way to search for one."
+)
+
+
 def _hyperevm_live(state: AgentState) -> str:
     question = state.get("original_question", state["question"])
     match = _EVM_ADDRESS.search(question)
     try:
         if match:
-            addr = match.group(0)
-            info = hyperevm.address_summary(addr)
-            lines = [f"**{info['address']}** (live from Hyperscan)\n"]
-            if info["is_verified_contract"]:
-                lines.append(f"- Verified contract: {info['name'] or 'yes'}")
+            info = hyperevm.address_summary(match.group(0))
+            kind = "contract" if info["is_contract"] else "account"
+            lines = [f"**{info['address']}** — {kind} (read live from the chain)\n"]
             lines.append(f"- Balance: {info['balance_hype']} HYPE")
-            lines.append(
-                f"\n**Source** {_explorer_url('/address/' + info['address'])}"
-            )
+            if info["is_contract"]:
+                lines.append(f"- Contract code: {info['code_size_bytes']:,} bytes")
+                # Stated, not omitted: a reader who saw no verification line
+                # would reasonably assume it was checked and came back clean.
+                lines.append(
+                    "- Source verification: not available — reading the chain "
+                    "shows that code exists, not whether its source was published"
+                )
+            lines.append(f"\n**Source** HyperEVM JSON-RPC · explorer: {_explorer_url('/address/' + info['address'])}")
             return "\n".join(lines)
 
-        if state.get("coin"):
-            hits = hyperevm.find_contract(state["coin"])
-            if not hits:
-                return (
-                    f"I couldn't find a token or contract matching "
-                    f"{state['coin']!r} on HyperEVM."
-                )
-            lines = [f"**{state['coin']} on HyperEVM** (live from Hyperscan)\n"]
-            for h in hits:
-                label = h["name"] or h["symbol"] or h["type"]
-                sym = f" ({h['symbol']})" if h["symbol"] and h["symbol"] != label else ""
-                vfd = " — verified" if h["verified"] else ""
-                lines.append(f"- {label}{sym}: `{h['address']}`{vfd}")
-            lines.append(f"\n**Source** {_explorer_url('/')}")
-            return "\n".join(lines)
+        if state.get("coin") and not hyperevm.search_supported():
+            return _NO_SEARCH_MSG.format(name=state["coin"])
 
         stats = hyperevm.chain_stats()
-        n = lambda v: f"{v:,}" if isinstance(v, int) else "n/a"
+        block_time = stats["block_time_seconds"]
+        kind = stats["block_kind"] or "unrecognised"
         return (
-            "**HyperEVM network** (live from Hyperscan)\n\n"
-            f"- Latest block: {n(stats['latest_block'])}\n"
-            f"- Gas (gwei): {stats['gas_slow']} slow / {stats['gas_average']} avg / "
-            f"{stats['gas_fast']} fast\n"
-            f"- Total transactions: {n(stats['total_transactions'])} "
-            f"({n(stats['transactions_today'])} today)\n"
-            f"- Total addresses: {n(stats['total_addresses'])}\n\n"
-            f"**Source** {_explorer_url('/stats')}"
+            "**HyperEVM network** (read live from the chain)\n\n"
+            f"- Latest block: {stats['latest_block']:,}\n"
+            f"- Gas price: {stats['gas_price_gwei']} gwei\n"
+            f"- Block time: {f'{block_time}s' if block_time else 'n/a'}\n"
+            f"- That block: {stats['transactions_in_block']} transactions, "
+            f"{stats['block_gas_used']:,}/{stats['block_gas_limit']:,} gas "
+            f"({kind} block)\n\n"
+            f"**Source** HyperEVM JSON-RPC · explorer: {_explorer_url('/')}"
         )
-    except hyperevm.BlockscoutError as exc:
-        return f"I couldn't reach the HyperEVM explorer (Hyperscan): {exc}"
+    except hyperevm.ChainReadError as exc:
+        return f"I couldn't read HyperEVM chain state: {exc}"
 
 
 # Registry keyed by Protocol.live_tool.
@@ -395,6 +442,17 @@ _NO_GROUNDED_ANSWER_MSG = (
 
 @timed
 def escalate(state: AgentState) -> dict:
+    # A guardrail that routed here has ALREADY written rule-specific copy and
+    # committed the turn to history. Replying again did two things, both wrong:
+    # it replaced the deliberate, separately-tested warning in
+    # `guardrails/rules.py` with this generic account message — so the compromise
+    # copy never actually reached a user — and it logged the same turn twice,
+    # padding the conversation history the next turn is conditioned on.
+    #
+    # Record why we escalated; leave the guardrail's answer alone.
+    if state.get("guardrail_action") == "escalate":
+        return {"escalation_reason": f"guardrail: {state.get('guardrail_rule')}"}
+
     reason = state.get("escalation_reason") or state.get("intent") or "unknown"
     # A retrieval/grounding failure must not be dressed up as an account matter.
     answer = _NO_GROUNDED_ANSWER_MSG if _is_docs_failure(reason) else _ACCOUNT_ESCALATION_MSG

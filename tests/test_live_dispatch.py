@@ -79,6 +79,10 @@ def test_live_data_hyperliquid_missing_coin_asks():
 
 
 # --- hyperevm handler: three modes --------------------------------------
+#
+# Reads JSON-RPC since the explorer it used was rebuilt without an API. Two of
+# these tests pin what the tool now REFUSES to say, which is the part that
+# changed most.
 
 _ADDR = "0x" + "b" * 40
 
@@ -86,55 +90,86 @@ _ADDR = "0x" + "b" * 40
 def test_live_data_hyperevm_address_lookup(monkeypatch):
     monkeypatch.setattr(
         nodes.hyperevm, "address_summary",
-        lambda a: {"address": _ADDR, "balance_hype": 12.5,
-                   "is_verified_contract": False, "name": None},
+        lambda a: {"address": _ADDR, "balance_hype": 12.5, "is_contract": False,
+                   "is_verified_contract": None, "code_size_bytes": 0},
     )
     out = nodes.live_data({"question": f"balance of {_ADDR}", "protocols": ["hyperevm"]})
     assert "12.5 HYPE" in out["answer"]
     assert _ADDR in out["answer"]
-    assert "hyperscan.com/address/" in out["answer"]
+    assert "account" in out["answer"]
 
 
-def test_live_data_hyperevm_verified_contract(monkeypatch):
+def test_live_data_hyperevm_contract_is_named_as_one(monkeypatch):
     monkeypatch.setattr(
         nodes.hyperevm, "address_summary",
-        lambda a: {"address": _ADDR, "balance_hype": 0.0,
-                   "is_verified_contract": True, "name": "WrappedHYPE"},
+        lambda a: {"address": _ADDR, "balance_hype": 0.0, "is_contract": True,
+                   "is_verified_contract": None, "code_size_bytes": 2041},
     )
     out = nodes.live_data({"question": f"what is {_ADDR}", "protocols": ["hyperevm"]})
-    assert "Verified contract" in out["answer"]
-    assert "WrappedHYPE" in out["answer"]
+    assert "contract" in out["answer"]
+    assert "2,041 bytes" in out["answer"]
 
 
-def test_live_data_hyperevm_contract_search_by_coin(monkeypatch):
+def test_live_data_says_verification_was_not_checked_rather_than_omitting_it(monkeypatch):
+    """A reader who saw no verification line would reasonably assume it was
+    checked and came back clean. JSON-RPC cannot check it at all."""
     monkeypatch.setattr(
-        nodes.hyperevm, "find_contract",
-        lambda q, limit=5: [{"name": "Wrapped HYPE", "symbol": "WHYPE",
-                             "address": "0x5555", "type": "ERC-20", "verified": True}],
+        nodes.hyperevm, "address_summary",
+        lambda a: {"address": _ADDR, "balance_hype": 0.0, "is_contract": True,
+                   "is_verified_contract": None, "code_size_bytes": 100},
     )
+    out = nodes.live_data({"question": f"is {_ADDR} verified", "protocols": ["hyperevm"]})
+    assert "not available" in out["answer"]
+    assert "whether its source was published" in out["answer"]
+
+
+def test_live_data_hyperevm_name_search_refuses_without_claiming_absence(monkeypatch):
+    """The capability that went away with the explorer. An empty search result
+    would be indistinguishable from a search that found nothing — for a user
+    hunting a token contract, that is the difference between "try again with an
+    address" and "that token does not exist"."""
     out = nodes.live_data(
         {"question": "contract address for WHYPE", "protocols": ["hyperevm"], "coin": "WHYPE"}
     )
-    assert "0x5555" in out["answer"]
-    assert "verified" in out["answer"].lower()
+    answer = out["answer"]
+    assert "no way to search" in answer
+    assert "not saying no contract matches" in answer
+    assert "WHYPE" in answer
 
 
 def test_live_data_hyperevm_chain_stats_default(monkeypatch):
     monkeypatch.setattr(
         nodes.hyperevm, "chain_stats",
-        lambda: {"latest_block": 38553400, "gas_slow": 0.34, "gas_average": 0.59,
-                 "gas_fast": 3.49, "total_transactions": 104216478,
-                 "transactions_today": 12345, "total_addresses": 987654},
+        lambda: {"latest_block": 38553400, "gas_price_gwei": 0.59,
+                 "block_time_seconds": 1.0, "transactions_in_block": 7,
+                 "block_kind": "small", "block_gas_limit": 3_000_000,
+                 "block_gas_used": 516_921},
     )
     out = nodes.live_data({"question": "how is the hyperevm network doing", "protocols": ["hyperevm"]})
     assert "38,553,400" in out["answer"]      # thousands-formatted
     assert "HyperEVM network" in out["answer"]
+    assert "0.59 gwei" in out["answer"]
+    assert "small block" in out["answer"]
 
 
-def test_live_data_hyperevm_explorer_error(monkeypatch):
+def test_live_data_hyperevm_unmeasurable_block_time_is_not_guessed(monkeypatch):
+    monkeypatch.setattr(
+        nodes.hyperevm, "chain_stats",
+        lambda: {"latest_block": 1, "gas_price_gwei": 0.1,
+                 "block_time_seconds": None, "transactions_in_block": 0,
+                 "block_kind": None, "block_gas_limit": 3_000_000,
+                 "block_gas_used": 0},
+    )
+    out = nodes.live_data({"question": "hyperevm block time", "protocols": ["hyperevm"]})
+    assert "n/a" in out["answer"]
+    assert "unrecognised block" in out["answer"]
+
+
+def test_live_data_hyperevm_read_error(monkeypatch):
     def _boom():
-        raise nodes.hyperevm.BlockscoutError("down")
+        raise nodes.hyperevm.ChainReadError("no provider answered")
 
     monkeypatch.setattr(nodes.hyperevm, "chain_stats", _boom)
     out = nodes.live_data({"question": "hyperevm gas", "protocols": ["hyperevm"]})
-    assert "couldn't reach" in out["answer"].lower()
+    assert "couldn't read HyperEVM chain state" in out["answer"]
+    assert "no provider answered" in out["answer"]

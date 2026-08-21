@@ -446,29 +446,67 @@ def eval_answers(cases: list[dict], limit: int = 20) -> dict:
     return {"faithfulness": mean_faith}
 
 
+_FLAGS = (
+    "guardrails",
+    "retrieval",
+    "verification",
+    "anomaly",
+    "agents",
+    "routing",
+    "answers",
+    "offline",
+    "all",
+)
+
+# Everything that runs without an API key. `--offline` is the suite someone can
+# put in CI; the paid harnesses stay opt-in so a routine run never surprises
+# anyone with a bill.
+_FREE = ("guardrails", "retrieval", "verification", "anomaly", "agents")
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
-    for flag in ("guardrails", "retrieval", "routing", "answers", "offline", "all"):
+    for flag in _FLAGS:
         p.add_argument(f"--{flag}", action="store_true")
     p.add_argument("--k", type=int, default=5)
     args = p.parse_args()
 
-    if not any(vars(args)[f] for f in ("guardrails", "retrieval", "routing", "answers", "offline", "all")):
-        p.error("pick at least one: --guardrails --retrieval --routing --answers --offline --all")
+    if not any(vars(args)[f] for f in _FLAGS):
+        p.error("pick at least one: " + " ".join(f"--{f}" for f in _FLAGS))
+
+    def wanted(flag: str) -> bool:
+        return bool(
+            vars(args)[flag] or args.all or (args.offline and flag in _FREE)
+        )
 
     cases = load_cases()
     console.print(f"[dim]{len(cases)} golden cases[/dim]\n")
 
-    if args.guardrails or args.offline or args.all:
+    if wanted("guardrails"):
         console.rule("guardrails")
         eval_guardrails(cases)
-    if args.retrieval or args.offline or args.all:
+    if wanted("retrieval"):
         console.rule("retrieval")
         eval_retrieval(cases, k=args.k)
-    if args.routing or args.all:
+    if wanted("verification"):
+        console.rule("verification")
+        from eval.intelligence import eval_verification
+
+        eval_verification()
+    if wanted("anomaly"):
+        console.rule("anomaly detection")
+        from eval.intelligence import eval_anomaly
+
+        eval_anomaly()
+    if wanted("agents"):
+        console.rule("agent selection")
+        from eval.intelligence import eval_agent_selection
+
+        eval_agent_selection()
+    if wanted("routing"):
         console.rule("routing")
         eval_routing(cases)
-    if args.answers or args.all:
+    if wanted("answers"):
         console.rule("answers")
         eval_answers(cases)
 

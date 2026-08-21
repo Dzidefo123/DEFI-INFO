@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterable
 from functools import lru_cache
 
@@ -12,17 +13,45 @@ from src.retrieval.store import load_corpus, vector_store
 
 RRF_K = 60  # standard reciprocal-rank-fusion damping constant
 
+# Serialises the lazy initialisation below.
+#
+# `lru_cache` memoises a result; it does NOT make computing that result atomic.
+# Two threads can miss the cache simultaneously and both run the body. That was
+# harmless while only one node retrieved — but the investigation branch fans
+# specialist agents out in PARALLEL, and from C3 both the Research and Security
+# agents retrieve. Two threads then built a Chroma client at once and the second
+# died with "Could not connect to tenant default_tenant", taking the whole
+# investigation with it.
+#
+# Reentrant because `_bm25` calls `_corpus` while holding it.
+_INIT = threading.RLock()
+
 
 @lru_cache(maxsize=1)
-def _store():
-    """The dense vector store — loaded once; the embedding model load is slow."""
+def _build_store():
     return vector_store()
 
 
 @lru_cache(maxsize=1)
+def _build_corpus() -> tuple[Document, ...]:
+    return tuple(load_corpus())
+
+
+def _store():
+    """The dense vector store — loaded once; the embedding model load is slow.
+
+    The lock is taken BEFORE the cache lookup, not inside the cached function.
+    Guarding the body would only serialise two concurrent misses; both threads
+    would still construct, and the race is in the construction.
+    """
+    with _INIT:
+        return _build_store()
+
+
 def _corpus() -> tuple[Document, ...]:
     """The full BM25 corpus, mirrored from disk. Tuple so it is hashable/cacheable."""
-    return tuple(load_corpus())
+    with _INIT:
+        return _build_corpus()
 
 
 def _filter_by_protocol(
@@ -34,8 +63,15 @@ def _filter_by_protocol(
     return [d for d in docs if d.metadata.get("protocol") in protocols]
 
 
-@lru_cache(maxsize=16)
 def _bm25(protocols: frozenset[str] | None) -> BM25Retriever | None:
+    """Thread-safe wrapper; see `_store`. Building an index is not cheap, and two
+    agents scoped to the same protocol would otherwise both build it."""
+    with _INIT:
+        return _build_bm25(protocols)
+
+
+@lru_cache(maxsize=16)
+def _build_bm25(protocols: frozenset[str] | None) -> BM25Retriever | None:
     """BM25 over the corpus restricted to `protocols`.
 
     BM25 has no server and no metadata filter — the index *is* the document set —

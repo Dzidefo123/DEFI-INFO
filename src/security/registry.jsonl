@@ -1,0 +1,37 @@
+// Security findings registry — one JSON object per line.
+//
+// This file is a whitelist of FACTS, in the same spirit as the protocol
+// whitelist in src/protocols.py: an entry exists because a person put it here on
+// purpose, with a source anyone can go and check.
+//
+// It is intentionally empty. An entry labelled CONFIRMED_INCIDENT is trusted by
+// everything downstream — it can support a claim, raise a confidence score, and
+// appear in a report as an established fact about a named protocol. Filling this
+// in from memory or from an unverified summary would put defamatory content
+// behind that label. Every entry needs a citation an operator has read.
+//
+// Adding one:
+//
+//   {"id": "unique-slug",
+//    "protocol": "ethena",                    // must be in the whitelist
+//    "classification": "confirmed_incident",  // confirmed_incident
+//                                             // | known_vulnerability
+//                                             // | suspicious_signal
+//                                             // | unverified_claim
+//    "title": "Short description",
+//    "summary": "What happened, in a sentence or two.",
+//    "source_uri": "https://...",             // where this is documented
+//    "source_tier": "official",               // primary | official | community | unverified
+//    "status": "mitigated",                   // active | mitigated | resolved | unknown
+//    "occurred_at": "2026-01-15T00:00:00Z",   // optional
+//    "disclosed_at": "2026-01-17T00:00:00Z",  // optional
+//    "references": ["https://..."]}           // optional
+//
+// Classification and source_tier are INDEPENDENT. A confirmed incident reported
+// by a community researcher is confirmed AND community-tier. Do not raise the
+// tier to reflect how certain the finding is, or the classification to reflect
+// how reputable the source is.
+//
+// Only confirmed_incident and known_vulnerability may support a finding.
+// suspicious_signal and unverified_claim attach as neutral context: they will
+// appear in the report and will never raise a confidence score.

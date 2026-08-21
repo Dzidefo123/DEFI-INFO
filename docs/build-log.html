@@ -1,0 +1,2154 @@
+<title>DEFI-INFO Build Log</title>
+
+<style>
+  /* ---- tokens: light is the base, both dark paths redefine only these ---- */
+  :root {
+    --bg:        #F2F4F6;
+    --surface:   #FFFFFF;
+    --surface-2: #E9EDF1;
+    --ink:       #16202B;
+    --ink-soft:  #35485A;
+    --muted:     #5C6B7A;
+    --line:      #D8E0E7;
+    --line-soft: #E6EBF0;
+
+    --accent:    #14606B;
+    --accent-ink:#0C464F;
+    --accent-bg: #E2EEF0;
+
+    --ok:        #4A7A2E;
+    --ok-bg:     #E8F0E0;
+    --warn:      #9A6A0F;
+    --warn-bg:   #F6EEDD;
+    --bad:       #A63446;
+    --bad-bg:    #F6E4E7;
+
+    --shadow: 0 1px 2px rgba(22,32,43,.06), 0 8px 24px rgba(22,32,43,.05);
+
+    --serif: Constantia, Cambria, "Palatino Linotype", Georgia, serif;
+    --sans: "Segoe UI", Corbel, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --mono: "Cascadia Mono", Consolas, "SF Mono", "Roboto Mono", ui-monospace, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:        #10171C;
+      --surface:   #16202A;
+      --surface-2: #1C2833;
+      --ink:       #E4EBF0;
+      --ink-soft:  #C2D0DA;
+      --muted:     #93A6B3;
+      --line:      #26343F;
+      --line-soft: #1E2A34;
+
+      --accent:    #57BFCC;
+      --accent-ink:#8FD8E2;
+      --accent-bg: #16323A;
+
+      --ok:        #96C46F;
+      --ok-bg:     #1D2A18;
+      --warn:      #D9A441;
+      --warn-bg:   #2E2412;
+      --bad:       #E68A98;
+      --bad-bg:    #33191E;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg:        #10171C;
+    --surface:   #16202A;
+    --surface-2: #1C2833;
+    --ink:       #E4EBF0;
+    --ink-soft:  #C2D0DA;
+    --muted:     #93A6B3;
+    --line:      #26343F;
+    --line-soft: #1E2A34;
+
+    --accent:    #57BFCC;
+    --accent-ink:#8FD8E2;
+    --accent-bg: #16323A;
+
+    --ok:        #96C46F;
+    --ok-bg:     #1D2A18;
+    --warn:      #D9A441;
+    --warn-bg:   #2E2412;
+    --bad:       #E68A98;
+    --bad-bg:    #33191E;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+  }
+
+  /* ---- base ---- */
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--serif);
+    font-weight: 700;
+    text-wrap: balance;
+    line-height: 1.22;
+    margin: 0;
+  }
+
+  a { color: var(--accent); }
+  code, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  code {
+    background: var(--surface-2);
+    border-radius: 3px;
+    padding: .08em .34em;
+    font-size: .88em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+
+  /* ---- shell ---- */
+  .shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: 56px;
+    align-items: start;
+  }
+
+  /* ---- masthead ---- */
+  .masthead {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--line);
+    padding: 56px 0 28px;
+    margin-bottom: 40px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+
+  .masthead h1 { font-size: clamp(34px, 5vw, 50px); letter-spacing: -.015em; }
+
+  .standfirst {
+    font-size: 18px;
+    color: var(--ink-soft);
+    max-width: 62ch;
+    margin: 16px 0 0;
+  }
+
+  /* ---- status strip ---- */
+  .strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 32px;
+  }
+
+  .stat { background: var(--surface); padding: 15px 18px; }
+
+  .stat dt {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 5px;
+  }
+
+  .stat dd {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 21px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  .stat dd .sub { font-size: 12.5px; color: var(--muted); }
+
+  /* ---- nav rail ---- */
+  .rail { position: sticky; top: 24px; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 26px; padding: 0; }
+
+  .rail li { border-left: 2px solid var(--line); }
+
+  .rail a {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 8px;
+    align-items: baseline;
+    padding: 5px 0 5px 12px;
+    text-decoration: none;
+    color: var(--ink-soft);
+    font-size: 13.5px;
+    transition: color .12s ease, background .12s ease;
+  }
+
+  .rail a:hover { color: var(--accent); background: var(--accent-bg); }
+  .rail .code { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .rail li.done { border-left-color: var(--ok); }
+  .rail li.next { border-left-color: var(--accent); }
+  .rail li.next a { color: var(--ink); font-weight: 600; }
+  .rail li.todo a { color: var(--muted); }
+
+  .rail .legend {
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+    line-height: 1.5;
+  }
+
+  /* ---- main column ---- */
+  main { min-width: 0; }
+
+  section { margin-bottom: 68px; scroll-margin-top: 24px; }
+
+  section > h2 {
+    font-size: 15px;
+    font-family: var(--mono);
+    font-weight: 600;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 26px;
+  }
+
+  p { margin: 0 0 16px; max-width: 68ch; }
+  main > section > p:first-of-type { font-size: 17px; }
+
+  ul.plain { margin: 0 0 18px; padding-left: 20px; max-width: 68ch; }
+  ul.plain li { margin-bottom: 7px; }
+
+  /* ---- phase entries ---- */
+  .phase {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    margin-bottom: 26px;
+    overflow: hidden;
+    scroll-margin-top: 24px;
+  }
+
+  .phase-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 17px 24px;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--surface-2);
+  }
+
+  .phase-code {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: var(--surface);
+    background: var(--accent);
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+
+  .phase-head h3 { font-size: 21px; flex: 1 1 auto; min-width: 200px; }
+
+  .pill {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .pill.done { background: var(--ok-bg); color: var(--ok); }
+  .pill.next { background: var(--accent-bg); color: var(--accent-ink); }
+  .pill.todo { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+
+  .phase-body { padding: 24px; }
+  .phase-body > *:last-child { margin-bottom: 0; }
+
+  h4.block {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 26px 0 11px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--line);
+  }
+
+  .phase-body > h4.block:first-child { margin-top: 0; }
+
+  /* ---- callouts ---- */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-bg);
+    padding: 14px 18px;
+    border-radius: 0 6px 6px 0;
+    margin: 0 0 18px;
+    font-size: 15px;
+  }
+
+  .note > *:last-child { margin-bottom: 0; }
+  .note.bad  { border-left-color: var(--bad);  background: var(--bad-bg); }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+
+  .note .label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .note .label { color: var(--accent-ink); }
+  .note.bad  .label { color: var(--bad); }
+  .note.warn .label { color: var(--warn); }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; margin: 0 0 20px; border-radius: 8px; border: 1px solid var(--line); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 460px; }
+
+  thead th {
+    background: var(--surface-2);
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+
+  tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    background: var(--surface);
+    vertical-align: top;
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+  td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .up   { color: var(--ok);  font-family: var(--mono); }
+  .down { color: var(--bad); font-family: var(--mono); }
+  .flat { color: var(--muted); font-family: var(--mono); }
+  .strike { text-decoration: line-through; color: var(--muted); }
+
+  /* ---- test trail ---- */
+  .trail { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; margin: 0 0 20px; }
+
+  .trail .step {
+    flex: 1 1 92px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 11px 12px;
+    min-width: 92px;
+  }
+
+  .trail .step .k {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: block;
+  }
+
+  .trail .step .v {
+    font-family: var(--mono);
+    font-size: 19px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  .trail .step .d { font-family: var(--mono); font-size: 11.5px; color: var(--ok); }
+  .trail .step.now { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+  /* ---- pipeline diagram ---- */
+  .flow {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.75;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--ink-soft);
+    margin: 0 0 20px;
+  }
+
+  .flow b { color: var(--accent); font-weight: 700; }
+  .flow i { color: var(--muted); font-style: normal; }
+
+  /* ---- glossary ---- */
+  .gloss { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .gloss div { background: var(--surface); padding: 14px 18px; }
+  .gloss dt { font-family: var(--mono); font-size: 13px; color: var(--accent-ink); font-weight: 700; margin-bottom: 3px; }
+  .gloss dd { margin: 0; font-size: 14.5px; color: var(--ink-soft); }
+
+  footer {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  /* ---- responsive ---- */
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; gap: 0; padding: 0 18px 64px; }
+    .rail { position: static; margin-bottom: 44px; }
+    .rail ol { columns: 2; column-gap: 22px; }
+    .masthead { padding-top: 36px; }
+  }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <p class="eyebrow">DEFI-INFO &middot; Engineering record &middot; Updated 21 Aug 2026 &middot; roadmap complete, post-roadmap in progress</p>
+    <h1>From CX Agent to Intelligence Platform</h1>
+    <p class="standfirst">
+      A running record of the rebuild described in <em>DEFI-INFO: Agentic Intelligence
+      Architecture</em> &mdash; what was built at each step, what was decided and why,
+      what the numbers actually said, and what broke along the way.
+    </p>
+
+    <dl class="strip">
+      <div class="stat"><dt>Tests</dt><dd>875 <span class="sub">&nbsp;from 201</span></dd></div>
+      <div class="stat"><dt>Suite runtime</dt><dd>4.2<span class="sub">s</span></dd></div>
+      <div class="stat"><dt>API spend</dt><dd>$0.00</dd></div>
+      <div class="stat"><dt>Phases</dt><dd>13 <span class="sub">+ 3</span></dd></div>
+      <div class="stat"><dt>Defects found</dt><dd>23</dd></div>
+      <div class="stat"><dt>Corpus</dt><dd>1091 <span class="sub">chunks</span></dd></div>
+    </dl>
+  </header>
+
+  <nav class="rail" aria-label="Roadmap">
+    <h2>Foundation</h2>
+    <ol>
+      <li class="done"><a href="#a0"><span class="code">A0</span><span>Index hygiene</span></a></li>
+      <li class="done"><a href="#a1"><span class="code">A1</span><span>Evidence models</span></a></li>
+      <li class="done"><a href="#a2"><span class="code">A2</span><span>Risk engine</span></a></li>
+    </ol>
+
+    <h2>Orchestration</h2>
+    <ol>
+      <li class="done"><a href="#b1"><span class="code">B1</span><span>Classification</span></a></li>
+      <li class="done"><a href="#b2"><span class="code">B2</span><span>Manager &amp; branch</span></a></li>
+    </ol>
+
+    <h2>Agents</h2>
+    <ol>
+      <li class="done"><a href="#c1"><span class="code">C1</span><span>Research</span></a></li>
+      <li class="done"><a href="#c2"><span class="code">C2</span><span>Blockchain</span></a></li>
+      <li class="done"><a href="#c3"><span class="code">C3</span><span>Security</span></a></li>
+      <li class="done"><a href="#c4"><span class="code">C4</span><span>Verification</span></a></li>
+    </ol>
+
+    <h2>Output</h2>
+    <ol>
+      <li class="done"><a href="#d1"><span class="code">D1</span><span>Evidence graph</span></a></li>
+      <li class="done"><a href="#d2"><span class="code">D2</span><span>Report generator</span></a></li>
+      <li class="done"><a href="#d3"><span class="code">D3</span><span>Evaluation</span></a></li>
+    </ol>
+
+    <h2>Post-roadmap</h2>
+    <ol>
+      <li class="done"><a href="#e1"><span class="code">E1</span><span>Chain reads</span></a></li>
+      <li class="done"><a href="#e2"><span class="code">E2</span><span>Chain-state tier</span></a></li>
+      <li class="done"><a href="#e3"><span class="code">E3</span><span>Contract registry</span></a></li>
+    </ol>
+
+    <h2>Reference</h2>
+    <ol>
+      <li class="done"><a href="#corrections"><span class="code">&sect;</span><span>Corrections</span></a></li>
+      <li class="done"><a href="#defects"><span class="code">&sect;</span><span>Defect log</span></a></li>
+      <li class="done"><a href="#glossary"><span class="code">&sect;</span><span>Vocabulary</span></a></li>
+    </ol>
+
+    <p class="legend">Thirteen roadmap phases shipped. Post-roadmap work continues below.</p>
+  </nav>
+
+  <main>
+
+    <!-- ============ OVERVIEW ============ -->
+    <section id="overview">
+      <h2>What we are building</h2>
+
+      <p>
+        The existing system answers questions about DeFi protocols using hybrid retrieval,
+        reranking, deterministic guardrails and live on-chain data. It works, and it is
+        measured. The rebuild does not replace it &mdash; it adds a second mode above it,
+        for questions a lookup cannot answer.
+      </p>
+
+      <div class="flow"><b>Simple question</b>  &rarr;  guard &rarr; route &rarr; retrieve &rarr; grade &rarr; generate &rarr; verify  &rarr;  answer     <i>(unchanged)</i>
+
+<b>Investigation</b>    &rarr;  guard &rarr; route &rarr; <b>plan</b> &rarr; ┬ research agent   ┐
+                                          ├ blockchain agent ┤&rarr; <b>risk</b> &rarr; <b>verify</b> &rarr; <b>report</b>
+                                          └ security agent   ┘</div>
+
+      <p>
+        The governing idea is that the system should stop producing answers and start
+        producing <em>evidence-backed conclusions</em> &mdash; things that can be traced to a
+        source, contradicted, or marked as unknown.
+      </p>
+
+      <h4 class="block">Three rules everything else follows from</h4>
+
+      <ul class="plain">
+        <li>
+          <strong>Deterministic where possible.</strong> Identifiers, confidence arithmetic,
+          statistics, source reliability and severity thresholds are computed by code. The
+          model interprets, plans and explains &mdash; it does not calculate, and it does not
+          rate its own sources.
+        </li>
+        <li>
+          <strong>Silence is never safety.</strong> "We checked and found nothing" and
+          "we never checked" must never render the same way. This single rule shapes the
+          severity bands, the verification statuses, the stub agents and the report.
+        </li>
+        <li>
+          <strong>Keep the simple path simple.</strong> An ordinary support question must not
+          get slower, costlier, or more elaborate because an investigation mode exists.
+        </li>
+      </ul>
+
+      <div class="note">
+        <span class="label">Working constraint</span>
+        Everything so far is built and tested with <strong>zero API spend</strong>. All 875
+        tests run offline in 4.2 seconds. Where a step genuinely needs a model, the model
+        call is injected so the surrounding pipeline is still exercised for free.
+      </div>
+
+      <h4 class="block">Test trail</h4>
+
+      <div class="trail">
+        <div class="step"><span class="k">Start</span><span class="v">201</span></div>
+        <div class="step"><span class="k">A0</span><span class="v">216</span> <span class="d">+15</span></div>
+        <div class="step"><span class="k">A1</span><span class="v">278</span> <span class="d">+62</span></div>
+        <div class="step"><span class="k">A2</span><span class="v">337</span> <span class="d">+59</span></div>
+        <div class="step"><span class="k">B1</span><span class="v">425</span> <span class="d">+88</span></div>
+        <div class="step"><span class="k">B2</span><span class="v">510</span> <span class="d">+85</span></div>
+        <div class="step"><span class="k">C1</span><span class="v">543</span> <span class="d">+33</span></div>
+        <div class="step"><span class="k">C2</span><span class="v">612</span> <span class="d">+69</span></div>
+        <div class="step"><span class="k">C3</span><span class="v">651</span> <span class="d">+39</span></div>
+        <div class="step"><span class="k">C4</span><span class="v">702</span> <span class="d">+51</span></div>
+        <div class="step"><span class="k">D1</span><span class="v">731</span> <span class="d">+29</span></div>
+        <div class="step"><span class="k">D2</span><span class="v">759</span> <span class="d">+28</span></div>
+        <div class="step"><span class="k">D3</span><span class="v">796</span> <span class="d">+37</span></div>
+        <div class="step"><span class="k">E1</span><span class="v">815</span> <span class="d">+19</span></div>
+        <div class="step"><span class="k">E2</span><span class="v">848</span> <span class="d">+33</span></div>
+        <div class="step now"><span class="k">E3</span><span class="v">875</span> <span class="d">+27</span></div>
+      </div>
+    </section>
+
+    <!-- ============ A0 ============ -->
+    <section id="a0">
+      <h2>Foundation</h2>
+
+      <article class="phase">
+        <div class="phase-head">
+          <span class="phase-code">A0</span>
+          <h3>Index hygiene</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <h4 class="block">Why it came first</h4>
+          <p>
+            A note in the project memory said some retrieved documents were missing their
+            protocol tag. That turned out to be a symptom of something much larger, and it
+            had to be fixed before any agent could cite evidence &mdash; provenance is
+            worthless if the index is not what the code thinks it is.
+          </p>
+
+          <h4 class="block">The defect</h4>
+          <p>
+            <code>write_index</code> called <code>Chroma.from_documents</code> against a
+            persistent directory. That <strong>upserts by id</strong>: it overwrites ids that
+            still exist and never deletes ids that don't. Every rebuild since the
+            multi-protocol migration layered on top of the last.
+          </p>
+
+          <div class="scroll">
+            <table>
+              <thead><tr><th>What was in the vector store</th><th class="n">Rows</th><th>Consequence</th></tr></thead>
+              <tbody>
+                <tr><td>Live chunks (correct)</td><td class="n">1,091</td><td>&mdash;</td></tr>
+                <tr><td>Orphans with <em>no</em> protocol tag</td><td class="n">661</td><td>Answered <strong>unfiltered</strong> queries &mdash; the generic questions the router declines to scope</td></tr>
+                <tr><td>Orphans still tagged</td><td class="n">496</td><td>Leaked into <strong>filtered</strong> queries</td></tr>
+                <tr><td><strong>Total held</strong></td><td class="n"><strong>2,248</strong></td><td>Dense search read this; BM25 read a clean mirror of 1,091</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="note bad">
+            <span class="label">The worst of it</span>
+            Among the tagged orphans, <code>onboarding/how-to-use-the-hyperevm</code> was indexed
+            under <strong>both</strong> <code>hyperliquid</code> and <code>hyperevm</code>. That is
+            precisely the cross-protocol leak the protocol filter exists to prevent &mdash;
+            reintroduced underneath it by the writer.
+          </div>
+
+          <h4 class="block">Fix</h4>
+          <ul class="plain">
+            <li><code>write_index</code> now drops the collection before writing.</li>
+            <li><code>index_drift()</code> reconciles the two stores by <code>doc_id</code> using pure set logic &mdash; deliberately metadata-blind, so it catches untagged rows no metadata sweep could reach.</li>
+            <li><code>build_index --verify</code> checks; <code>--repair</code> re-embeds the corpus mirror locally &mdash; no crawl, no network, no cost.</li>
+          </ul>
+
+          <h4 class="block">Measured &mdash; and it moved two published conclusions</h4>
+          <p>
+            Every retrieval number previously published was measured against the dirty index.
+            Re-running on the repaired one changed the story in both directions.
+          </p>
+
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Metric</th><th class="n">Before (drifted)</th><th class="n">After (clean)</th><th class="n">Δ</th></tr></thead>
+              <tbody>
+                <tr><td>recall@5 &mdash; reranked</td><td class="n">0.954</td><td class="n">0.969</td><td class="n up">+0.015</td></tr>
+                <tr><td>MRR@5 &mdash; reranked</td><td class="n">0.862</td><td class="n">0.874</td><td class="n up">+0.012</td></tr>
+                <tr><td>MRR@5 &mdash; fusion only</td><td class="n">0.815</td><td class="n">0.783</td><td class="n down">−0.032</td></tr>
+                <tr><td>Reranker recall gain</td><td class="n">+0.008</td><td class="n">+0.023</td><td class="n up">3&times;</td></tr>
+                <tr><td>Reranker MRR gain</td><td class="n">+0.047</td><td class="n">+0.091</td><td class="n up">2&times;</td></tr>
+                <tr><td><strong>Protocol filter recall gain</strong></td><td class="n">+0.031</td><td class="n">+0.000</td><td class="n down">gone</td></tr>
+                <tr><td>Leakage without the filter</td><td class="n">35.2%</td><td class="n">6.0%</td><td class="n">&mdash;</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>See <a href="#corrections">Corrections</a> for what this means and what was retracted.</p>
+        </div>
+      </article>
+
+      <!-- ============ A1 ============ -->
+      <article class="phase" id="a1">
+        <div class="phase-head">
+          <span class="phase-code">A1</span>
+          <h3>Evidence &amp; claims</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            The vocabulary every agent writes in: <code>Evidence</code>, <code>Claim</code>,
+            <code>EvidenceLink</code>, and the confidence model. Everything downstream depends
+            on these being right, so they were built first and tested hardest &mdash; 62 tests.
+          </p>
+
+          <h4 class="block">Three decisions, each pinned by tests</h4>
+
+          <ul class="plain">
+            <li>
+              <strong>Identity is content, not authorship.</strong> Every id is a hash of the
+              semantically identifying fields, so the same fact found by two agents is
+              <em>one</em> node. Otherwise running more agents would inflate the
+              independent-source count that confidence is built on. Re-reading an unchanged
+              fact tomorrow does not mint a second observation; reading a metric at a
+              different block does.
+            </li>
+            <li>
+              <strong>Stance lives on the edge, not the evidence.</strong> A TVL drop supports
+              "activity declined" and contradicts "the protocol is growing". Evidence has no
+              intrinsic polarity &mdash; only a relationship to a specific claim does.
+            </li>
+            <li>
+              <strong>Source reliability is assigned by rule.</strong>
+              <code>PRIMARY / OFFICIAL / COMMUNITY / UNVERIFIED</code> is decided by where
+              something came from. A model asked to rate its own sources rates them well, and
+              confidence built on that is circular.
+            </li>
+          </ul>
+
+          <div class="note bad">
+            <span class="label">I shipped the confidence model wrong &mdash; the tests caught it</span>
+            <p>
+              The spec gives confidence as a product of five factors. Implemented directly that
+              collapses (0.9<sup>5</sup> = 0.59), so I used a geometric mean to fix the deflation.
+            </p>
+            <p>
+              But a geometric mean is <em>compensatory</em>. With five factors, a term of 0.05
+              cannot pull the result below 0.05<sup>1/5</sup> &asymp; <strong>0.55</strong> &mdash;
+              so a claim the verification stage had actively <em>refuted</em> still reported as
+              moderately confident, and outscored an honest "insufficient evidence". A
+              verification stage that strong evidence can outvote is not a verification stage.
+            </p>
+            <p>
+              <strong>Fix:</strong> verification became a <em>gate</em>, not a fifth factor.
+              <code>score = geomean(4 evidence factors) &times; verification_weight</code>, with
+              <code>CONTRADICTED = 0.0</code>. A refuted claim is not a weak yes; it belongs in
+              the same category as one with no support at all.
+            </p>
+          </div>
+
+          <h4 class="block">Other deterministic choices</h4>
+          <ul class="plain">
+            <li><strong>Reliability takes the best source, not the average.</strong> Averaging would mean citing a corroborating forum post <em>alongside</em> the protocol's own docs lowers confidence &mdash; penalising thoroughness and pushing agents to cite less.</li>
+            <li><strong>Quality counts distinct source URIs.</strong> Otherwise an agent that chunks a document finely looks better-evidenced than one that doesn't.</li>
+            <li><strong>Freshness decays per evidence kind.</strong> Market data has a 6-hour half-life; documentation has a year. One global window would either treat live metrics as durable or discard docs that never expired.</li>
+          </ul>
+
+          <h4 class="block">Verified against the spec's own worked examples</h4>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Claim</th><th class="n">Spec</th><th class="n">Ours</th><th>Band</th></tr></thead>
+              <tbody>
+                <tr><td>"Protocol X experienced abnormal withdrawals" &mdash; 4 sources, verified</td><td class="n">0.94</td><td class="n">0.962</td><td>high</td></tr>
+                <tr><td>"The withdrawals were caused by an exploit" &mdash; 1 source, 2 contradictions</td><td class="n">0.31</td><td class="n">0.124</td><td>very low</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Same ordering, ours more conservative &mdash; the safe direction.</p>
+        </div>
+      </article>
+
+      <!-- ============ A2 ============ -->
+      <article class="phase" id="a2">
+        <div class="phase-head">
+          <span class="phase-code">A2</span>
+          <h3>Statistical risk engine</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            Pure standard-library statistics &mdash; no ML, no model, no network. The spec calls
+            this the genuinely differentiating piece, and the reason to start with statistics
+            is not simplicity: a z-score can be printed in a report and argued with. An
+            Isolation Forest score cannot.
+          </p>
+
+          <h4 class="block">Four decisions where the textbook version is wrong here</h4>
+          <ul class="plain">
+            <li><strong>The baseline excludes the point being tested.</strong> An outlier included in its own baseline inflates the standard deviation &mdash; so the bigger the anomaly, the better it hides. This is the most common way a z-score detector silently fails to fire on the event it was built for.</li>
+            <li><strong>Robust scores run alongside classical ones.</strong> Mean and σ are themselves destroyed by outliers. On a contaminated window the classical score reads |z| &lt; 3 (blinded) while the median/MAD score reads |z| &gt; 10 (still firing). Severity takes the worse of the two.</li>
+            <li><strong>Undefined returns undefined.</strong> A constant series has σ = 0 and no z-score exists. Returning <code>inf</code>, or 0, or dividing by an epsilon manufactures a finding out of a division.</li>
+            <li><strong>Short histories are refused.</strong> Below 8 observations there is no baseline, and the honest output is "we have not been watching long enough" &mdash; the statistical form of <em>insufficient evidence</em>.</li>
+          </ul>
+
+          <div class="note warn">
+            <span class="label">Measured &mdash; and it changed the threshold</span>
+            <p>
+              Benchmarked on 400 days of labelled synthetic data. At the 2σ anomaly bar the
+              spec implies:
+            </p>
+            <p class="num">precision <strong>0.46</strong> &middot; recall 1.00 &middot; FPR 0.062</p>
+            <p>
+              Every one of the 21 false positives was an ordinary ~2σ day. A 2σ bar fires on
+              roughly one day in twenty <em>per metric</em> &mdash; across a dozen tracked
+              metrics that alerts most days on nothing at all.
+            </p>
+            <p>
+              Moving <code>anomaly</code> to 3σ (keeping <code>notable</code> at 2σ) gave
+              <strong class="num">precision 1.00 &middot; recall 1.00 &middot; F1 1.00 &middot; FPR 0.00</strong>
+              with no recall lost. The spec supports this: its own report table lists "Elevated"
+              and "High Anomaly" as <em>distinct rows</em>.
+            </p>
+          </div>
+
+          <div class="note">
+            <span class="label">Stated limitation</span>
+            That benchmark is <strong>synthetic</strong>. There is no labelled on-chain incident
+            set yet, so the thresholds are uncalibrated and the code says so wherever severity
+            is shown. When real labelled incidents exist, they replace the generator.
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <!-- ============ B1 ============ -->
+    <section id="b1">
+      <h2>Orchestration</h2>
+
+      <article class="phase">
+        <div class="phase-head">
+          <span class="phase-code">B1</span>
+          <h3>Query classification</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            Six categories &mdash; <code>cx</code>, <code>research</code>,
+            <code>blockchain_analysis</code>, <code>security_analysis</code>,
+            <code>risk_assessment</code>, <code>full_investigation</code> &mdash; added as a
+            <strong>third axis on the existing router's output</strong>, not a separate
+            classifier node.
+          </p>
+
+          <div class="note">
+            <span class="label">Why not its own node</span>
+            The <code>grade</code> stage already eats 43% of a turn's cost. A second
+            classification call would charge <em>every</em> question, including the ordinary
+            ones whose answer is "no investigation needed". All three axes come from one
+            reading of one sentence, so splitting them buys latency, not independence.
+          </div>
+
+          <h4 class="block">The safety clamp</h4>
+          <p>
+            Depth is a separate axis from safety, and safety wins. <code>account_action</code>
+            and <code>out_of_scope</code> collapse <em>any</em> depth back to <code>cx</code>.
+          </p>
+          <p>
+            This is code, not a prompt instruction. "Investigate whether my drained wallet was
+            an exploit" reads as a full investigation and is an account action &mdash; and the
+            account action must win. A prompt instruction is exactly the thing a crafted
+            question argues its way around; this one cannot be argued with.
+          </p>
+
+          <h4 class="block">Three defects surfaced while testing</h4>
+          <ul class="plain">
+            <li>
+              <strong>The enum broke checkpointing.</strong> Putting a <code>QueryType</code> in
+              graph state produced <em>"deserializing unregistered type &mdash; will be blocked
+              in a future version"</em>. A <code>str</code>-subclassing enum still counts as an
+              unregistered class. It works today and breaks persisted conversations on a future
+              LangGraph &mdash; the same failure class as the metrics object that bit this
+              project before. State now carries the bare value.
+            </li>
+            <li>
+              <strong>Guardrail hits on turn 2+ logged the wrong question.</strong> Pre-existing.
+              The guard replies before its own state update applies, so under a checkpointer it
+              read the <em>previous</em> turn's question &mdash; corrupting the transcript of
+              exactly the safety-critical turns anyone would later audit.
+            </li>
+            <li>
+              <strong>The compromise guardrail's copy never reached a user.</strong> Pre-existing,
+              and the significant one. The guard writes its reply, then routes to
+              <code>escalate</code>, which replied <em>again</em> &mdash; overwriting the
+              carefully-worded compromise warning with generic text and logging the turn twice.
+              Every unit test on that copy passed while it was being discarded end-to-end.
+            </li>
+          </ul>
+
+          <div class="note warn">
+            <span class="label">Unmeasured risk</span>
+            Intent accuracy is 87%. Adding a third axis to the same call could dilute it, and
+            that cannot be checked offline. Worth a <code>--routing</code> run (~$1.70) at some
+            point to confirm intent held.
+          </div>
+        </div>
+      </article>
+
+      <!-- ============ B2 ============ -->
+      <article class="phase" id="b2">
+        <div class="phase-head">
+          <span class="phase-code">B2</span>
+          <h3>Intelligence Manager &amp; investigation branch</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            The branch exists and runs end-to-end. Agents fan out in <em>parallel</em> &mdash;
+            the conditional edge returns a list, which is how the orchestrator schedules genuine
+            concurrent branches rather than a sequence.
+          </p>
+
+          <h4 class="block">Planning is deterministic and free</h4>
+          <p>
+            No model call. Which agents run, whether the risk engine applies, whether
+            verification applies, and what the investigation is scoped to are all settled by the
+            classification. The plan is recorded <em>before</em> execution, so a report can
+            distinguish "security was investigated and found nothing" from "security was never
+            investigated" &mdash; a distinction that is unrecoverable after the fact.
+          </p>
+
+          <div class="note">
+            <span class="label">Design principle &mdash; stubs refuse, they never reassure</span>
+            <p>
+              An unimplemented security agent returning "no incidents found" would be the most
+              dangerous line in the repository: indistinguishable downstream from a real negative
+              finding, and strictly more confident than the evidence permits.
+            </p>
+            <p>
+              Every stub contributes <strong>zero claims</strong> plus a recorded limitation. The
+              security stub says outright that its silence means <em>nothing was searched, not
+              that nothing exists</em>. What made this easy is that A1 and A2 had already built
+              the vocabulary for it &mdash; unknown is not normal, unsupported claims score zero,
+              and a report with no verified findings refuses to conclude.
+            </p>
+          </div>
+
+          <h4 class="block">Two constraints discovered by testing</h4>
+          <ul class="plain">
+            <li>
+              <strong>State carries plain dicts, never models.</strong> Checked empirically rather
+              than assumed: under strict serialization a model in a state channel is
+              <em>blocked</em>, and without it, it silently rehydrates as a plain dict. A node
+              reading <code>evidence[0].summary</code> would work on the turn that wrote it and
+              crash on the next.
+            </li>
+            <li>
+              <strong>The shared-channel reducer takes a reset.</strong> Parallel agents writing
+              shared channels need a reducer, but plain append also accumulates <em>across
+              turns</em> &mdash; investigation #2 would inherit #1's evidence and report claims it
+              never gathered. Same bug class as the sticky escalation flag found in B1.
+            </li>
+          </ul>
+
+          <h4 class="block">The report reproduces the spec's key distinction</h4>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Finding</th><th class="n">Confidence</th><th>Verification</th></tr></thead>
+              <tbody>
+                <tr><td>Liquidity outflows were abnormally high over the last 24 hours</td><td class="n">0.88</td><td><span class="pill done">Verified</span></td></tr>
+                <tr><td>The abnormal outflows were caused by a security exploit</td><td class="n">0.14</td><td><span class="pill todo">Insufficient evidence</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The system can detect that something abnormal happened without claiming to know why
+            &mdash; with the contradicting evidence surfaced in its own section rather than
+            buried.
+          </p>
+        </div>
+      </article>
+    </section>
+
+    <!-- ============ C1 ============ -->
+    <section id="c1">
+      <h2>Agents</h2>
+
+      <article class="phase">
+        <div class="phase-head">
+          <span class="phase-code">C1</span>
+          <h3>Research Agent</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            The first stub replaced by a working agent. It reuses <code>hybrid_search</code>
+            unchanged &mdash; the ordinary path and the investigation path share the same
+            measured retrieval, because maintaining two retrievers and measuring one is how
+            quality quietly diverges.
+          </p>
+
+          <div class="flow">question &rarr; <b>decompose</b> (4 angles) &rarr; retrieve each &rarr; <b>evidence</b> &rarr; <b>synthesize</b> (claims cite excerpt numbers) &rarr; <b>link</b> &rarr; verified claims
+             <i>1 model call</i>          <i>local, free</i>      <i>deterministic</i>       <i>1 model call</i>            <i>deterministic</i></div>
+
+          <p>
+            Two model calls total regardless of how many sub-queries run, because retrieval is
+            local and free. That is the whole reason decomposition is affordable here.
+          </p>
+
+          <div class="note">
+            <span class="label">The load-bearing part</span>
+            The model proposes claims and cites excerpts <em>by number</em>; code resolves those
+            numbers against the evidence actually retrieved. Out-of-range citations are dropped,
+            repeats are linked once, and <strong>a claim left with no valid citation is
+            discarded</strong> &mdash; not kept at confidence zero. It would score zero anyway,
+            but a zero-confidence claim still sits in the record inviting someone to read it as
+            a weak finding. It is not a weak finding; nothing supports it.
+          </div>
+
+          <h4 class="block">Measured on the real corpus</h4>
+          <p>Three angles versus one query, k=5, protocol-filtered:</p>
+
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Protocol</th><th class="n">Chunks (1 &rarr; 3 angles)</th><th class="n">Distinct pages</th><th class="n">Gain</th></tr></thead>
+              <tbody>
+                <tr><td>ethena</td><td class="n">5 &rarr; 15</td><td class="n">5 &rarr; 13</td><td class="n up">3.0&times;</td></tr>
+                <tr><td>hyperevm</td><td class="n">5 &rarr; 15</td><td class="n">3 &rarr; 9</td><td class="n up">3.0&times;</td></tr>
+                <tr><td>hyperliquid</td><td class="n">5 &rarr; 15</td><td class="n">2 &rarr; 4</td><td class="n up">3.0&times;</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Three times the evidence surface with <strong>zero chunk overlap between angles</strong>.
+            The <span class="num">2&nbsp;&rarr;&nbsp;4</span> row is the interesting one:
+            Hyperliquid's funding docs are concentrated, so decomposition <em>deepens</em> &mdash;
+            more chunks from few pages. Ethena's are spread out, so it <em>broadens</em>. The
+            effect depends on corpus structure, not just query count.
+          </p>
+
+          <div class="note warn">
+            <span class="label">Honest caveat</span>
+            More evidence is not automatically better. Nothing yet checks whether the extra
+            chunks are <em>useful</em>, and they are more work for verification to get through.
+            That needs a golden-set measurement that has not been done.
+          </div>
+
+          <h4 class="block">Three defects found wiring it up</h4>
+          <ul class="plain">
+            <li><strong>Default arguments made the agent unpatchable.</strong> A default binds the function object at import, so swapping the module attribute still reached the network &mdash; the full suite hung on its first run after the stub was replaced.</li>
+            <li><strong>Verification computed verdicts but never applied them.</strong> The report read each claim's status, which stayed <em>unverified</em>, so a well-evidenced investigation rendered as "produced no findings".</li>
+            <li><strong>The breadcrumb stuttered on real data</strong> &mdash; "How USDe Works &rsaquo; How USDe Works &rsaquo; How USDe Maintains its Peg" &mdash; visible only against the real corpus, never against fixtures.</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- ============ C2 ============ -->
+      <article class="phase" id="c2">
+        <div class="phase-head">
+          <span class="phase-code">C2</span>
+          <h3>Blockchain Agent &amp; feature store</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            The risk engine now has data. A SQLite feature store &mdash; standard library, no new
+            dependency &mdash; persists readings over time, and a scheduled collector keeps them
+            current. Anomaly detection is a comparison against a baseline, and until this existed
+            there was no baseline to compare against.
+          </p>
+
+          <h4 class="block">The agent gathers; it does not judge</h4>
+          <p>
+            It produces evidence &mdash; measurements with times and sources &mdash; and
+            <strong>no claims</strong>. Claims about abnormality are emitted by the risk engine
+            from the arithmetic, linked to the readings they were computed from. So every claim
+            that something is unusual traces to a computation someone can redo by hand, rather
+            than to an agent's impression of a number. A signal that cannot be tied back to a
+            stored reading is dropped, not asserted &mdash; the same rule the Research Agent's
+            citations get, with no exemption for the risk engine.
+          </p>
+
+          <h4 class="block">Two rules the storage layer enforces by shape</h4>
+          <ul class="plain">
+            <li><strong>Writes are idempotent.</strong> Collection is scheduled, schedules overlap and retry, and a duplicated reading is not harmless &mdash; it doubles that value's weight in the baseline it later forms part of. A conflicting later value never overwrites a recorded one either: that is a source inconsistency, and rewriting history to match the newest answer erases the evidence of it.</li>
+            <li><strong>The baseline query cannot include the point being tested.</strong> Rather than documenting the risk engine's core rule and hoping, the function callers reach for takes the current timestamp as an exclusive bound.</li>
+          </ul>
+
+          <div class="note bad">
+            <span class="label">Key finding &mdash; and I had the reason backwards</span>
+            <p>
+              Cumulative counters (total transactions, total addresses) must be differenced into
+              rates before scoring. I first justified this as "a counter would flag critical every
+              day". That is wrong. Measured on 30 days of ~1000 tx/day:
+            </p>
+            <div class="scroll">
+              <table>
+                <thead><tr><th>Next day</th><th class="n">Raw counter</th><th class="n">As a rate</th></tr></thead>
+                <tbody>
+                  <tr><td>normal (+1000)</td><td class="n">z=+1.76 normal</td><td class="n">z=−0.12 normal</td></tr>
+                  <tr><td>3&times; surge (+3000)</td><td class="n"><strong>z=+1.98 normal</strong></td><td class="n">z=+34.6 critical</td></tr>
+                  <tr><td>10&times; surge (+10000)</td><td class="n">z=+2.77 elevated</td><td class="n">z=+156 critical</td></tr>
+                  <tr><td><strong>chain stalls (+5)</strong></td><td class="n"><strong>z=+1.64 normal</strong></td><td class="n">z=−17.4 critical</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              A counter sits at its all-time high by construction, so its score is pinned around
+              +1.7 whatever happens &mdash; just under the elevated line. It is not noisy; it is
+              <strong>blind</strong>. Look at the last row: <strong>a chain that stops entirely
+              reads normal</strong>, because the counter is still near its peak, it simply stopped
+              climbing. A catastrophic outcome dressed as an all-clear &mdash; which is worse than
+              a false alarm, and precisely what this system exists to prevent.
+            </p>
+          </div>
+
+          <h4 class="block">Verified against live endpoints</h4>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Protocol</th><th>Result</th><th>Behaviour</th></tr></thead>
+              <tbody>
+                <tr><td>hyperliquid</td><td><span class="pill done">Collecting</span></td><td>8 live series accumulating &mdash; mark price, funding, open interest, 24h volume, across ETH and BTC</td></tr>
+                <tr><td>ethena</td><td><span class="pill todo">No source</span></td><td>Refuses correctly: <em>"no on-chain data source is wired up &mdash; the absence of an anomaly here means nothing was measured"</em></td></tr>
+                <tr><td>hyperevm</td><td><span class="pill todo">Broken</span></td><td>Explorer API returns 404 &mdash; see below</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="note warn">
+            <span class="label">Needs your decision &mdash; HyperEVM's explorer is gone</span>
+            <p>
+              <code>hyperscan.com/api/v2/stats</code> now returns <strong>404</strong>, along with
+              every other endpoint tried: the bare domain, <code>/api/v2/blocks</code>,
+              <code>/main-page/blocks</code>, the Etherscan-compatible <code>/api</code> surface,
+              and the Blockscout-hosted alternative. The public API has moved or been withdrawn
+              since it was last verified.
+            </p>
+            <p>
+              <strong>This is pre-existing and not caused by this step.</strong> It also breaks the
+              <em>shipped</em> live-data path &mdash; a user asking "what is the latest HyperEVM
+              block" gets an error today. Both paths degrade honestly, with no fabricated numbers
+              and no false all-clear, which is verified. But HyperEVM on-chain data is dead until
+              a working endpoint is found.
+            </p>
+            <p>
+              Three options: find the relocated Hyperscan API, swap to a different explorer, or
+              drop HyperEVM's live tool and let it answer from documentation only.
+            </p>
+          </div>
+
+          <div class="note">
+            <span class="label">What it honestly reports today</span>
+            A feature store that started collecting today has almost no history, so nothing can be
+            scored yet &mdash; each series reports how many more readings it needs before a
+            baseline exists. That is the correct output, not a placeholder: a version that produced
+            findings from one reading would be lying.
+          </div>
+
+          <h4 class="block">Two defects found</h4>
+          <ul class="plain">
+            <li><strong>I reintroduced C1's default-argument bug.</strong> Same mistake, one step later &mdash; a default binds at import, so the injected collector was ignored and the offline test reached a live explorer.</li>
+            <li><strong>Evidence records could not state their own identity.</strong> The ids were plain properties, so they vanished when a record was serialized into graph state &mdash; leaving links unresolvable without rebuilding the model. They are computed fields now, which the evidence graph will need.</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- ============ C3 ============ -->
+      <article class="phase" id="c3">
+        <div class="phase-head">
+          <span class="phase-code">C3</span>
+          <h3>Security Agent</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            All three specialists are real now. This one searches two sources that are
+            deliberately never blended: a curated registry of security findings, and the
+            protocol's own security documentation &mdash; audits, custody arrangements, bug
+            bounties, risk disclosures &mdash; which is already in the corpus and costs one local
+            retrieval.
+          </p>
+
+          <h4 class="block">The four categories, and the rule that keeps them apart</h4>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Category</th><th>Meaning</th><th>May support a finding?</th></tr></thead>
+              <tbody>
+                <tr><td>Confirmed incident</td><td>It happened, and a named source stands behind that</td><td><span class="pill done">Yes</span></td></tr>
+                <tr><td>Known vulnerability</td><td>A weakness is documented, used or not</td><td><span class="pill done">Yes</span></td></tr>
+                <tr><td>Suspicious signal</td><td>Something looks off; nobody has established what</td><td><span class="pill todo">Context only</span></td></tr>
+                <tr><td>Unverified claim</td><td>Somebody said so</td><td><span class="pill todo">Context only</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Unestablished findings attach as <em>neutral</em>. They appear in the record so a
+            report can show them, and they can never raise a confidence score. That is the
+            spec's own worked example turned into a rule: a forum post attributing an outflow to
+            an exploit does not make the exploit likelier &mdash; it makes the rumour visible. A
+            test adds four rumours beside a confirmed incident and asserts the score does not
+            move.
+          </p>
+
+          <p>
+            <strong>Classification and source reliability are independent axes.</strong> A
+            confirmed incident reported by a community researcher is confirmed <em>and</em>
+            community-tier. Collapsing "who said it" into "how established is it" is the specific
+            mistake the separation exists to prevent.
+          </p>
+
+          <div class="note bad">
+            <span class="label">The registry ships empty, on purpose</span>
+            <p>
+              An entry labelled <em>confirmed incident</em> is trusted by everything downstream
+              &mdash; it can support a claim, raise a confidence score, and appear in a report as
+              established fact about a named protocol. Populating it from my recollection of DeFi
+              history would put <strong>defamatory content about real protocols</strong> behind
+              that label. Every entry needs a citation an operator has actually read.
+            </p>
+            <p>
+              So the agent reports: <em>"no security findings are on file &hellip; this means
+              nothing has been recorded &mdash; NOT that nothing has happened. No external
+              threat-intelligence feed is connected."</em> Adding entries is an operator decision,
+              documented in the file itself.
+            </p>
+          </div>
+
+          <div class="note">
+            <span class="label">The documentation stream needed equal care</span>
+            A risk-disclosure page is a protocol describing a risk it designed around. It is not
+            evidence that anything went wrong. Treating "Ethena documents custodial risk" as a
+            security finding would make every well-documented protocol a suspect and every
+            undocumented one look clean &mdash; precisely inverted. So documented risks produce a
+            claim about what is <em>documented</em>, which says so explicitly, and never a claim
+            that a vulnerability exists.
+          </div>
+
+          <h4 class="block">Two defects, both introduced here</h4>
+
+          <div class="note bad">
+            <span class="label">Parallel agents raced to build the vector store</span>
+            <p>
+              With two agents retrieving instead of one, the parallel fan-out finally exercised
+              something that had been latent: memoisation caches a <em>result</em>, it does not
+              make computing that result atomic. Two threads missed the cache together, both
+              started building a database client, and the second died &mdash; taking the whole
+              investigation with it.
+            </p>
+            <p>
+              Fixed with a lock taken <strong>before</strong> the cache lookup. Guarding the body
+              instead would only serialise two concurrent misses; both would still construct, and
+              the construction is where the race lives.
+            </p>
+          </div>
+
+          <div class="note warn">
+            <span class="label">The report led with confidence on a partial investigation</span>
+            <p>
+              Asked <em>"is Ethena showing any significant risk?"</em>, the summary opened with
+              <strong>"high confidence (0.98)"</strong>. True of the finding it described &mdash;
+              a claim about what the documentation covers &mdash; but the risk engine had measured
+              nothing and the incident registry was empty. A reader skimming the first line would
+              take that as an answer about risk.
+            </p>
+            <p>
+              This is the same failure the whole system is built against, one level up. Coverage
+              now comes first: unmet stages are derived <em>from the plan</em> &mdash; which is
+              why the plan is recorded before execution &mdash; and the summary opens
+              <em>"Partial investigation. &hellip; not an answer about the parts that were
+              not."</em>
+            </p>
+          </div>
+        </div>
+      </article>
+
+      <!-- ============ C4 ============ -->
+      <article class="phase" id="c4">
+        <div class="phase-head">
+          <span class="phase-code">C4</span>
+          <h3>Verification Agent</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            The agent layer is complete. This is the one whose success looks like
+            <em>removing</em> output: it finds nothing, it only asks whether what the other
+            agents found holds up.
+          </p>
+
+          <h4 class="block">Six checks, five of them free</h4>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Check</th><th>Question</th><th>On failure</th></tr></thead>
+              <tbody>
+                <tr><td>support</td><td>Does any evidence point at this?</td><td><span class="pill todo">Blocking</span></td></tr>
+                <tr><td>contradiction</td><td>Is it outweighed by evidence against?</td><td><span class="pill todo">Blocking</span></td></tr>
+                <tr><td>source quality</td><td>Is anything behind it better than unverified?</td><td>Weakens</td></tr>
+                <tr><td>temporal relevance</td><td>Is the evidence still current enough?</td><td>Weakens</td></tr>
+                <tr><td>numeric consistency</td><td>Does every figure stated appear in the evidence?</td><td>Weakens</td></tr>
+                <tr><td>overclaiming</td><td>Does it assert more than its evidence carries?</td><td>Weakens</td></tr>
+                <tr><td>entailment <em>(optional)</em></td><td>Does the evidence actually bear on <em>this</em> claim?</td><td><span class="pill todo">Blocking</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="note">
+            <span class="label">The two that nothing upstream can do</span>
+            <p>
+              <strong>Numeric consistency.</strong> If a claim states a figure, that figure must
+              appear in the evidence behind it &mdash; magnitude-normalised, so "$12.5M" and
+              "12,500,000" compare equal, with tolerance for rounding. This is the cheapest
+              defence against the most expensive error a DeFi answer can make: a confidently
+              stated number nobody measured. Retrieval cannot catch it and grading cannot &mdash;
+              the chunk is relevant, the sentence is fluent, and the number is invented.
+            </p>
+            <p>
+              <strong>Overclaiming.</strong> Causal language ("caused by", "due to", "resulted
+              in") and absolutes ("never", "guaranteed", "proves") raise the number of
+              independent sources required. Causation is a larger assertion than observation, and
+              a system that scores them identically will publish the second dressed as the first.
+              This is the spec's own worked example turned into a rule.
+            </p>
+          </div>
+
+          <h4 class="block">Demonstrated on a deliberately bad synthesizer</h4>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Claim</th><th>Verdict</th><th class="n">Conf.</th><th>Reason</th></tr></thead>
+              <tbody>
+                <tr><td>"maintains its peg through arbitrage"</td><td><span class="pill done">Verified</span></td><td class="n">0.88</td><td>&mdash;</td></tr>
+                <tr><td>"holds exactly $87,300,000 in reserves"</td><td><span class="pill todo">Partial</span></td><td class="n">0.62</td><td>that figure appears nowhere in the evidence</td></tr>
+                <tr><td>"the peg is <em>guaranteed because of</em> the hedge"</td><td><span class="pill todo">Partial</span></td><td class="n">0.62</td><td>causal claim resting on one source</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="note warn">
+            <span class="label">Entailment is off by default, and that is disclosed</span>
+            The one model call &mdash; "does this evidence actually bear on this claim?" &mdash;
+            costs one request per claim that survived the free checks. It is the right thing to
+            pay for on an investigation someone will act on, and the wrong thing to pay on every
+            turn. When it is off the report says so: evidence was verified as present, sourced,
+            current and numerically consistent, <em>but not as actually being about the claim it
+            supports</em>. The cost of skipping is stated, not hidden.
+          </div>
+
+          <h4 class="block">Two defects</h4>
+          <div class="note bad">
+            <span class="label">My own status logic conflated the two failures it exists to separate</span>
+            A claim with no evidence at all produced an agreement score of 0/0 &rarr; 0.0, which
+            tripped the contradiction check &mdash; so "we could not establish this" was reported
+            as "we have reason to believe otherwise". Precisely the merge the four statuses exist
+            to prevent, in the component built to prevent it. Nothing arguing against a claim
+            cannot be a contradiction; the support check is what should block it, with the right
+            reason.
+          </div>
+          <p>
+            The second was a genuine gap the new checks exposed: risk-engine claims quote a
+            baseline median and a z-score, which are derived from history that lives in no
+            evidence node. Numeric consistency flagged them, correctly. The computation itself is
+            now recorded as evidence &mdash; a statistical-signal node, a kind defined back in A1
+            and unused until something needed it.
+          </p>
+        </div>
+      </article>
+
+      <!-- ============ D1 ============ -->
+      <article class="phase" id="d1">
+        <div class="phase-head">
+          <span class="phase-code">D1</span>
+          <h3>Evidence Graph</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            The flat record already holds every claim and every citation, so the graph had to
+            earn its place. It does, in two ways a list structurally cannot.
+          </p>
+
+          <h4 class="block">1 &mdash; It answers "why did you conclude that?" by walking</h4>
+          <div class="flow">WHY DID YOU CONCLUDE THAT? &rarr; <b>USDe maintains its peg through arbitrage.</b>
+    [supported_by] evidence: Peg Arbitrage Mechanism
+    [supported_by] evidence: Peg Arbitrage Mechanism &rsaquo; Agent Instructions
+      [from_source] source: Peg Arbitrage Mechanism</div>
+          <p>
+            Rebuilt from a checkpoint, so the question stays answerable after the fact without
+            re-running anything. Only provenance edges are followed &mdash; the relationships
+            leading sideways to a protocol or an agent are real, but following them would answer
+            <em>who said it</em> rather than <em>what it rests on</em>.
+          </p>
+
+          <h4 class="block">2 &mdash; It reveals when findings are not independent</h4>
+          <div class="note">
+            <span class="label">The reason it exists</span>
+            <p>
+              Two claims each carrying citations look like two corroborated findings. Several
+              pieces of evidence converge on one <em>source</em> node, and suddenly they are one
+              finding stated twice. Measured on a live run:
+            </p>
+            <p class="num">2 claims &middot; 5 pieces of evidence &middot; 5 distinct sources &rarr;
+              <strong>1 independent line of evidence</strong></p>
+            <p>
+              The report's new <strong>Provenance</strong> section says so plainly: <em>"2 claims
+              share the source 'How USDe Works' &mdash; they corroborate each other only as far as
+              that one source is correct."</em> That bounds what the findings are entitled to
+              claim, and nothing else in the system can see it.
+            </p>
+          </div>
+
+          <h4 class="block">Choices</h4>
+          <ul class="plain">
+            <li><strong>No graph library.</strong> Tens to low hundreds of nodes and a handful of specific traversals &mdash; adjacency dictionaries are the whole implementation.</li>
+            <li><strong>Built per investigation, from the record.</strong> A lens over state, not a second store that can drift out of agreement with the first &mdash; which is precisely the failure A0 was about. Persisting it across investigations is a later and different problem.</li>
+            <li><strong>The node vocabulary is shorter than the spec's.</strong> A node type nothing constructs is a promise the graph cannot keep, and an empty category in a provenance view reads as "we checked and found none".</li>
+            <li><strong>Rendered as a diagram</strong> in the report, as text rather than an image &mdash; it costs nothing and diffs cleanly.</li>
+          </ul>
+
+          <p>No defects in this step.</p>
+        </div>
+      </article>
+
+      <!-- ============ D2 ============ -->
+      <article class="phase" id="d2">
+        <div class="phase-head">
+          <span class="phase-code">D2</span>
+          <h3>Report refinements</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            The structure shipped in B2 and provenance in D1. This is the difference between a
+            report that contains the right headings and one a reader can actually rely on. Five
+            gaps, none of them new sections for their own sake.
+          </p>
+
+          <h4 class="block">The summary and the assessment were the same paragraph</h4>
+          <p>
+            Word for word. §15 gives them separate headings because they do separate jobs, and
+            printing one twice wasted the other. The <strong>summary</strong> now says what was
+            found, coverage first. The <strong>final assessment</strong> says what the
+            investigation is <em>entitled to conclude</em> &mdash; a narrower statement that has
+            to name what stays open:
+          </p>
+          <div class="note">
+            <span class="label">Final assessment, on a real run</span>
+            "The strongest finding is well supported and can be relied on as stated (confidence
+            0.88). This conclusion is bounded by what was searched: no on-chain metric could be
+            scored against a baseline and no security findings were on file to review.
+            <strong>Nothing here speaks to those.</strong>"
+          </div>
+
+          <h4 class="block">Security findings had nowhere to appear</h4>
+          <p>
+            §15 lists the section and it was missing, so §10's four categories had no place to be
+            shown apart. Established findings and unestablished ones now render under separate
+            headings, with the second group stating outright that nothing under it supports a
+            conclusion. A rumour printed beside a confirmed incident, in the same typeface, is
+            read as a second incident &mdash; which is exactly the merge that separation exists
+            to prevent.
+          </p>
+
+          <div class="note warn">
+            <span class="label">A subtlety the freshness stamp exposed</span>
+            <p>
+              An artifact about on-chain data with no as-of window is dangerous: the numbers look
+              current because the document is. But adding one naively dated a year-old
+              documentation page to today &mdash; a document has no authored date the system can
+              see, so its timestamp is a fact about the crawl, not the content.
+            </p>
+            <p>
+              The two are now reported separately: <em>"Measurements are as of 2026-08-20. 12
+              documentation excerpt(s) were retrieved on 2026-08-20; the documentation's own age
+              is not known to this system."</em>
+            </p>
+          </div>
+
+          <h4 class="block">The report is now data as well as prose</h4>
+          <p>
+            §15 calls the output a structured intelligence artifact, and markdown alone is half of
+            that &mdash; it can be read, but not queried, diffed by field, or scored. Alongside
+            the prose there is now a structured form carrying findings with their confidence,
+            band and limiting factor; security counts per category; provenance including how many
+            <em>independent</em> lines of evidence the claims rest on; the evidence window; and
+            what was not covered. Both are rendered from the same record, so a reader and a script
+            cannot be told different things &mdash; there is a test for exactly that.
+          </p>
+          <p>
+            Evidence lists per finding are also capped now: a finding backed by twelve sections
+            was burying the next one under twelve bullets.
+          </p>
+        </div>
+      </article>
+
+      <!-- ============ D3 ============ -->
+      <article class="phase" id="d3">
+        <div class="phase-head">
+          <span class="phase-code">D3</span>
+          <h3>Evaluation</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            The last phase. Three new harnesses, all free to run: verification, anomaly detection
+            beyond a single threshold, and agent selection. The offline suite goes from two
+            harnesses to five, so a routine run now covers the investigation path too.
+          </p>
+
+          <h4 class="block">Verification &mdash; scoring the stage that exists to reject things</h4>
+          <p>
+            Eighteen labelled cases, one per way a claim can be wrong: unsupported, fabricated
+            figure, causal overreach, absolute overreach, outweighed by contradiction, anonymous
+            source, stale evidence, and combinations. Alongside them, cases that <em>must</em> be
+            accepted &mdash; a set of only-bad claims would score perfectly against a verifier
+            that rejects everything.
+          </p>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Metric</th><th class="n">Value</th><th>Reading</th></tr></thead>
+              <tbody>
+                <tr><td>claim accuracy</td><td class="n">1.000</td><td>exact status agreement</td></tr>
+                <tr><td><strong>false verification rate</strong></td><td class="n"><strong>0.000</strong></td><td>bad claims accepted &mdash; the asymmetric one</td></tr>
+                <tr><td>unsupported-claim catch rate</td><td class="n">1.000</td><td>&mdash;</td></tr>
+                <tr><td>contradiction detection</td><td class="n">1.000</td><td>&mdash;</td></tr>
+                <tr><td>over-rejection rate</td><td class="n">0.000</td><td>good claims wrongly rejected &mdash; the cost side</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note warn">
+            <span class="label">What this number is and is not</span>
+            The cases are constructed, one per failure mode, written by me against a system
+            written by me. That makes this a <strong>regression guard</strong>, not an estimate of
+            real-world rates &mdash; real traffic will have a different mix and needs its own
+            labels. The case file says so, and so should anyone quoting the figure.
+          </div>
+
+          <div class="note bad">
+            <span class="label">My first anomaly benchmark measured nothing</span>
+            <p>
+              It drew anomalies from 6&ndash;15 against a baseline of 2.3 &plusmn; 0.25 &mdash;
+              about fifteen standard deviations of separation. Every metric read 1.000, including
+              ROC-AUC. A benchmark whose ceiling is reached by any working implementation cannot
+              distinguish a good detector from an adequate one.
+            </p>
+            <p>Rebuilt with three tiers that actually degrade:</p>
+            <div class="scroll">
+              <table>
+                <thead><tr><th>Tier</th><th class="n">Precision</th><th class="n">Recall</th><th class="n">F1</th><th class="n">ROC-AUC</th></tr></thead>
+                <tbody>
+                  <tr><td>easy (~15&sigma;)</td><td class="n">1.000</td><td class="n">1.000</td><td class="n">1.000</td><td class="n">1.000</td></tr>
+                  <tr><td>moderate</td><td class="n">1.000</td><td class="n">0.889</td><td class="n">0.941</td><td class="n">0.998</td></tr>
+                  <tr><td>hard (inside the tail)</td><td class="n">1.000</td><td class="n">0.389</td><td class="n">0.560</td><td class="n">0.978</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              <strong>The shape is the finding.</strong> Precision and false-positive rate hold at
+              1.000 and 0.000 across every tier while recall collapses from 1.00 to 0.39: the
+              3&sigma; bar never cries wolf, it misses subtle shifts. And ROC-AUC stays at 0.978
+              while F1 falls to 0.560 &mdash; which locates the loss in the <em>threshold</em>
+              rather than the score. Lowering the bar would recover recall if subtle shifts ever
+              mattered more than quiet. That is precisely what a threshold-independent metric is
+              for, and why the spec asks for one.
+            </p>
+          </div>
+
+          <h4 class="block">A rate over an empty denominator is undefined, not zero</h4>
+          <p>
+            The harness divided by zero on a case set where everything was expected to verify.
+            The fix is not a guard returning 0.000 &mdash; that would report "no bad claims
+            accepted" for a measurement that never ran, which is the most reassuring possible
+            reading of nothing having happened. It reports <em>n/a</em>, on the same principle
+            that keeps "unknown" apart from "normal" everywhere else in the system.
+          </p>
+        </div>
+      </article>
+    </section>
+
+    <!-- ============ POST-ROADMAP ============ -->
+    <section id="e1">
+      <h2>After the roadmap</h2>
+
+      <p>
+        The thirteen phases closed with four operational items open. Three of these entries
+        clear the first of them; the fourth arrived as a review of the work itself.
+      </p>
+
+      <article class="phase">
+        <div class="phase-head">
+          <span class="phase-code">E1</span>
+          <h3>Chain reads over JSON-RPC</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <h4 class="block">What actually happened to the explorer</h4>
+          <p>
+            The site was reported as working &mdash; and it is. It had been rebuilt as a web
+            application, and its API went with the rebuild. Every surface the tool used is gone:
+            the Blockscout v2 routes 404, and the Etherscan-compatible one returns
+            <strong>HTTP 200 carrying an HTML page</strong>.
+          </p>
+          <div class="note bad">
+            <span class="label">The trap that nearly caught this</span>
+            A status-code check would have called that 200 a success, and a lenient parser would
+            have turned the HTML into an empty result &mdash; which downstream is
+            indistinguishable from "the chain reported nothing unusual". This project's own notes
+            already recorded the same trap for a documentation site that served an SPA fallback
+            to <code>llms.txt</code>. It is now a rule at the client boundary: validate the shape,
+            never the status code, and record <em>not collected</em> rather than a zero.
+          </div>
+
+          <h4 class="block">Why RPC, and why it is the stronger choice</h4>
+          <p>
+            An explorer's API is a product feature; it gets redesigned when the website does,
+            exactly as happened. JSON-RPC is a protocol standard. But the decisive argument is not
+            fragility &mdash; it is <strong>provenance</strong>. Source reliability here is
+            assigned by rule from a whitelist treated as a security boundary, and an endpoint
+            inferred from a minified JavaScript bundle has nowhere to sit in that model. It cannot
+            be tiered, so it cannot be scored, so a claim resting on it cannot be cited. It fails
+            at the schema, not at runtime.
+          </p>
+          <p>
+            The client is therefore provider-agnostic: hosts live in a registry, and every call
+            returns the value <em>and</em> the provider that served it, carrying its tier. When a
+            weaker provider answers, evidence built from it scores lower automatically.
+          </p>
+
+          <h4 class="block">Three measurements that changed the design</h4>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Measured</th><th>Value</th><th>Consequence</th></tr></thead>
+              <tbody>
+                <tr><td>Block time</td><td class="n">0.99 s</td><td>&mdash;</td></tr>
+                <tr><td>Gas limits</td><td class="n">3,000,000 and 30,000,000</td><td>Docs cited 2M; the split threshold sits between either way</td></tr>
+                <tr><td>Big blocks per 90</td><td class="n">1</td><td>A fixed 30-block window would <strong>never</strong> sample one</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The last row was caught empirically, not reasoned about: the first collector ran
+            cleanly and silently produced no big-block readings at all. The scan now walks back
+            from the head and stops once it has enough of both, costing about 63 calls against a
+            100-per-minute limit.
+          </p>
+          <p>
+            <strong>The dual-block split is not cosmetic.</strong> Sampled together, transactions
+            per block is a mixture of two populations, and its variance is dominated by which kind
+            of block was sampled rather than by chain activity. The severity thresholds were
+            calibrated on unimodal data, and the robust score handles skew and contamination but
+            does nothing about bimodality &mdash; the series would carry large stable variance and
+            simply never fire.
+          </p>
+
+          <h4 class="block">Block height, as a counter, on purpose</h4>
+          <p>
+            The cumulative counters lost with the explorer are not missed &mdash; a counter sits at
+            its all-time high by construction, so a chain that stops entirely still reads normal on
+            one. But block height is registered <em>as</em> a counter deliberately: differenced, its
+            rate is blocks produced per interval, which is chain liveness. It is the one thing a
+            counter measures better than a gauge could.
+          </p>
+
+          <div class="note">
+            <span class="label">The live-data path, and what it now declines to say</span>
+            <p>
+              Network overview, balances and contract-vs-account detection all work again, with
+              block time straight from timestamps. Two capabilities went with the explorer's index,
+              and both refuse explicitly rather than degrading:
+            </p>
+            <p>
+              <em>"I'm not saying no contract matches 'WHYPE'. I'm saying I have no way to search
+              for one."</em> An empty search result is indistinguishable from a search that found
+              nothing &mdash; for someone hunting a token contract, that is the difference between
+              "try again with an address" and "that token does not exist". Verification status
+              reports absent rather than false, for the same reason.
+            </p>
+          </div>
+
+          <div class="note warn">
+            <span class="label">A foot-gun, closed</span>
+            Testing the collector meant writing to the live feature store, and off-schedule
+            readings sit seconds apart in a series meant to be evenly spaced &mdash; which shrinks
+            the baseline they join and suppresses the anomalies it exists to catch. Two such runs
+            had to be deleted by hand. <code>--dry-run</code> now exercises the full path, network
+            calls included, up to the point of writing.
+          </div>
+        </div>
+      </article>
+
+      <!-- ============ E2 ============ -->
+      <article class="phase" id="e2">
+        <div class="phase-head">
+          <span class="phase-code">E2</span>
+          <h3>Chain-state tier, and claim-kind weighting</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            A single ranking over sources cannot be right, because the ordering genuinely inverts
+            between the two most authoritative sources this system has.
+          </p>
+          <div class="note">
+            <span class="label">The argument</span>
+            <p>
+              <strong>Documentation records what a protocol commits to. Chain state records what it
+              is doing.</strong>
+            </p>
+            <p>
+              "Reserves are $87.3M" is settled by the chain &mdash; documentation describes intent,
+              and intent can be stale or aspirational. "Liquidation uses a three-minute TWAP" is
+              settled by the documentation &mdash; you cannot read a rule off a sequence of
+              transactions, because observed behaviour is consistent with many rules. Neither
+              strictly outranks the other, so reliability became a matrix.
+            </p>
+          </div>
+
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Claim kind</th><th class="n">Chain</th><th class="n">Docs</th><th>Settled by</th></tr></thead>
+              <tbody>
+                <tr><td>state</td><td class="n">1.00</td><td class="n">0.55</td><td>chain</td></tr>
+                <tr><td>mechanism</td><td class="n">0.65</td><td class="n">1.00</td><td>documentation</td></tr>
+                <tr><td>event</td><td class="n">0.95</td><td class="n">0.65</td><td>chain</td></tr>
+                <tr><td>unspecified</td><td class="n">0.90</td><td class="n">0.90</td><td>&mdash;</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            Undeclared tops out below 1.00 in every column: a claim whose kind nobody stated has not
+            earned the top of any of them, which also makes declaring an improvement rather than a
+            free win.
+          </p>
+
+          <h4 class="block">Two corrections, both caught in review before the registry work</h4>
+
+          <div class="note bad">
+            <span class="label">Kind was agent identity wearing a costume</span>
+            <p>
+              Every claim's kind was hardcoded per agent &mdash; research always mechanism, security
+              always event, risk engine always state. That is agent identity re-entering the
+              weighting immediately after being deliberately kept out of claim identity, and it is
+              wrong in a predictable direction: a documentation page stating "reserves are $87.3M"
+              would be scored as a mechanism claim, giving documentation <strong>1.00</strong> in the
+              one row where it should be 0.55.
+            </p>
+            <p>
+              Kind is now declared per claim, bounded by a table of what each agent is
+              <em>competent</em> to assert. Research may say a page describes a mechanism or states
+              a value; it may not say an incident occurred. That bound is what stops the declaration
+              being a free parameter &mdash; the thing being scored does not get to pick its own row.
+            </p>
+          </div>
+
+          <div class="note bad">
+            <span class="label">The compensatory failure, relocated into the matrix</span>
+            <p>
+              Reliability was already a maximum within tier, so that half was safe. But
+              <em>evidence quality</em> was additive, and it is a separate factor in the same
+              geometric mean. Measured on a mechanism claim:
+            </p>
+            <div class="scroll">
+              <table>
+                <thead><tr><th>Support</th><th class="n">Quality</th><th class="n">Reliability</th><th class="n">Score</th></tr></thead>
+                <tbody>
+                  <tr><td>1 documentation page</td><td class="n">0.600</td><td class="n">1.00</td><td class="n">0.880</td></tr>
+                  <tr><td>20 chain observations</td><td class="n">0.968</td><td class="n">0.65</td><td class="n">0.891 &larr;</td></tr>
+                  <tr><td>100 chain observations</td><td class="n">0.993</td><td class="n">0.65</td><td class="n">0.896 &larr;</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              The low weight capped one axis while quality accumulated around it &mdash; the same
+              shape as the confidence bug from A1, one layer up. And the reason dictates the fix:
+              <strong>underdetermination does not improve with observation count.</strong> A hundred
+              liquidations are consistent with the same dozen rules as ten.
+            </p>
+            <p>
+              So sources that are the wrong instrument for a claim's kind are now
+              <strong>capped, not discounted</strong>: however many there are, they contribute at
+              most one source's worth of corroboration between them. Quality is now flat across 5,
+              20 and 100. It is not special-casing the chain either &mdash; ten documentation pages
+              stating a value produce identical quality to one, on a claim about state.
+            </p>
+          </div>
+        </div>
+      </article>
+
+      <!-- ============ E3 ============ -->
+      <article class="phase" id="e3">
+        <div class="phase-head">
+          <span class="phase-code">E3</span>
+          <h3>Contract registry</h3>
+          <span class="pill done">Shipped</span>
+        </div>
+        <div class="phase-body">
+
+          <p>
+            The tier and the scoring were ready; nothing produced chain-tier evidence for a claim
+            about state. That needed contract addresses &mdash; a whitelist decision, with the same
+            discipline as the protocol whitelist and the incident registry.
+          </p>
+
+          <div class="note">
+            <span class="label">Why contract addresses are admissible where an API endpoint was not</span>
+            <p>
+              <strong>This registry can check itself.</strong> An undocumented endpoint has to be
+              taken on faith; a contract can be asked what it is. Identity is confirmed against the
+              chain before any reading is kept, so a mistyped address, a redeployment, or a proxy
+              pointed elsewhere stops collection loudly rather than producing plausible numbers
+              about something else &mdash; at the highest reliability tier, which is where a wrong
+              number does most damage. A decimals mismatch even names the size of the error:
+              <em>"every scaled reading would be wrong by a factor of 1,000,000,000,000."</em>
+            </p>
+          </div>
+
+          <h4 class="block">One entry, found by asking the chain</h4>
+          <p>
+            An address encountered while testing self-identified as <strong>Wrapped HYPE (WHYPE),
+            18 decimals</strong>, and its native balance tracked its total supply &mdash; the
+            invariant a wrapper should satisfy. That cross-check is what made it a registry entry
+            rather than a guess.
+          </p>
+
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Metric</th><th class="n">Measured</th><th>What it is</th></tr></thead>
+              <tbody>
+                <tr><td>token_total_supply</td><td class="n">5,404,422.32</td><td>circulating supply</td></tr>
+                <tr><td>wrapper_native_backing</td><td class="n">5,404,422.32</td><td>native coin locked</td></tr>
+                <tr><td><strong>wrapper_backing_ratio</strong></td><td class="n"><strong>1.000000</strong></td><td>the invariant</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            The third is the reason this was worth doing. It is not a statistic about activity, it
+            is an invariant: a wrapper should hold exactly one native coin per wrapped token, so the
+            series should sit at 1.0 and any sustained departure is under- or over-collateralisation.
+            That is a finding, and the anomaly detector already knows how to spot a departure from a
+            stable baseline.
+          </p>
+
+          <div class="note bad">
+            <span class="label">The guard that rejected everything it was protecting</span>
+            <p>
+              The ratio must be computed from reads at one block: the public endpoint serves calls
+              at the head only, blocks arrive about every second, and a wrap settling between two
+              sequential reads would move one number and not the other. Reading 1.0002 because the
+              chain advanced mid-measurement is indistinguishable, in the store, from 1.0002 because
+              the wrapper is over-collateralised.
+            </p>
+            <p>
+              So the reads were bracketed with the block height &mdash; and the guard fired
+              <em>every single time</em>, because the client's own throttle makes four sequential
+              calls span two or three blocks by construction. The guard was right; the reads were
+              wrong. They are now a single batched round trip, matched by id rather than position so
+              a shuffled response cannot silently swap two values.
+            </p>
+          </div>
+
+          <h4 class="block">The loop closes</h4>
+          <div class="flow">WHYPE total supply is 5,404,422.32 tokens, fully backed at a ratio of 1.0000.
+   verdict     <b>verified</b>
+   reliability <b>1.00</b>   (chain tier, state claim)
+   confidence  <b>0.88</b>  [high]
+   checks      support, contradiction, source_quality, temporal_relevance,
+               numeric_consistency, overclaiming</div>
+          <p>
+            Numeric consistency passes because the figures came from the reading itself. Contract
+            state also got its own evidence kind with a <strong>4-hour half-life</strong> &mdash; a
+            reserve balance under the day-scale decay would sit at 0.71 currency half a day later, a
+            1.00-reliability source vouching for a moment well past.
+          </p>
+        </div>
+      </article>
+    </section>
+
+    <!-- ============ CORRECTIONS ============ -->
+    <section id="corrections">
+      <h2>Corrections &amp; retractions</h2>
+
+      <p>
+        Repairing the index invalidated measurements the README presented as established. Both
+        affected claims have been corrected in place, with the reasoning recorded rather than
+        quietly overwritten.
+      </p>
+
+      <div class="note bad">
+        <span class="label">Retracted</span>
+        <p>
+          <span class="strike">"The protocol filter is not merely hygiene &mdash; it is worth
+          +0.031 recall on its own."</span>
+        </p>
+        <p>
+          On a clean index the filter buys <strong>+0.000</strong> recall, and leakage without it
+          is 6%, not 35%. The orphans were overwhelmingly <em>untagged</em>, so the metadata
+          filter excluded them from every filtered run while the unfiltered run retrieved them
+          freely. The ablation was never comparing filtered against unfiltered search over one
+          corpus &mdash; it was comparing a clean corpus against a junk-laden one and crediting
+          the difference to the filter.
+        </p>
+      </div>
+
+      <p>
+        This also re-explains a trend the README had recorded honestly and interpreted wrongly.
+        The filter's measured benefit <em>shrank</em> as protocols were added (+0.036 at two,
+        +0.031 at three), attributed at the time to "adding a protocol spreads the competition".
+        The likelier explanation is arithmetic: the orphan count was roughly fixed while the live
+        corpus grew from 673 to 1,091, so the junk fraction fell and the artifact shrank with it.
+        It has now reached +0.000, which is where that line was always heading.
+      </p>
+
+      <div class="note">
+        <span class="label">The filter still earns its place &mdash; for a different reason</span>
+        It provides a <em>guarantee</em>, not a lift: 0 of 131 cases pull a wrong-protocol chunk,
+        versus 25 without it. <code>recall@k</code> structurally cannot see that difference &mdash;
+        it only asks whether the right page is in the top-k, not whether a rival protocol's page is
+        sitting <em>next to</em> it. That adjacency is exactly what produces a confidently
+        wrong-protocol answer. The value is context precision.
+      </div>
+
+      <div class="note">
+        <span class="label">Strengthened</span>
+        The cross-encoder is doing considerably more than it was credited with: MRR gain
+        +0.047 &rarr; <strong>+0.091</strong>, recall gain +0.008 &rarr; <strong>+0.023</strong>.
+        Fusion's own MRR <em>fell</em> on the clean index, because the orphans were duplicate
+        copies of correct pages padding its top ranks for free. The old "ranking, not recall"
+        framing came from a recall gain that sat flat at ~+0.008 across both drifted runs &mdash;
+        that flatness <em>was</em> the contamination.
+      </div>
+
+      <p>
+        The general lesson, now written into the README: a same-run ablation is only as
+        trustworthy as the index underneath it. Both ablations were internally consistent &mdash;
+        one process, one corpus, one question set &mdash; and one of them still measured an
+        artifact for months. The response was not "measure more carefully" but "assert the
+        invariant".
+      </p>
+    </section>
+
+    <!-- ============ DEFECTS ============ -->
+    <section id="defects">
+      <h2>Defect log</h2>
+
+      <p>
+        Twenty-three so far. Seven were pre-existing and silent; ten were introduced during this work
+        and caught by tests before shipping; six were flaws in my own design that the tests
+        rejected. The pre-existing ones are the interesting category &mdash; every one of them had
+        passing unit tests over the code that contained it.
+      </p>
+
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>Phase</th><th>Defect</th><th>Why it mattered</th><th>Origin</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="num">A0</td>
+              <td>Vector store accumulated 1,157 orphan chunks</td>
+              <td>Dense and sparse retrieval searched different corpora; one URL indexed under two protocols</td>
+              <td>Pre-existing</td>
+            </tr>
+            <tr>
+              <td class="num">A1</td>
+              <td>Confidence aggregator was compensatory</td>
+              <td>A refuted claim could never score below ~0.55, outscoring honest uncertainty</td>
+              <td>My design</td>
+            </tr>
+            <tr>
+              <td class="num">A2</td>
+              <td>Anomaly threshold at 2σ</td>
+              <td>Precision 0.46 &mdash; alert fatigue would have got the detector muted</td>
+              <td>My design</td>
+            </tr>
+            <tr>
+              <td class="num">B1</td>
+              <td>Enum in graph state breaks serialization</td>
+              <td>Would break persisted multi-turn conversations on a future release</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">B1</td>
+              <td>Guardrail hits logged the previous turn's question</td>
+              <td>Corrupted the transcript of safety-critical turns</td>
+              <td>Pre-existing</td>
+            </tr>
+            <tr>
+              <td class="num">B1</td>
+              <td>Compromise warning overwritten by generic copy</td>
+              <td>Carefully-worded safety text never reached a user; turn logged twice</td>
+              <td>Pre-existing</td>
+            </tr>
+            <tr>
+              <td class="num">B1</td>
+              <td>Escalation flag sticky across turns</td>
+              <td>Every turn after an escalation reported itself escalated</td>
+              <td>Pre-existing</td>
+            </tr>
+            <tr>
+              <td class="num">C1</td>
+              <td>Default arguments bound at import</td>
+              <td>Made the agent unpatchable; the offline suite hung on a live call</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">C1</td>
+              <td>Verdicts computed but never applied to claims</td>
+              <td>A well-evidenced investigation rendered as producing no findings</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">C1</td>
+              <td>Breadcrumb stutter on real chunk metadata</td>
+              <td>Source labels read as broken evidence; invisible against fixtures</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">C2</td>
+              <td>HyperEVM explorer API returns 404</td>
+              <td>Breaks on-chain collection <em>and</em> the shipped live-data path; degrades honestly but yields no data</td>
+              <td>Pre-existing</td>
+            </tr>
+            <tr>
+              <td class="num">C2</td>
+              <td>Default-argument binding, again</td>
+              <td>Same defect as C1 one step later &mdash; the offline suite reached a live explorer</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">C2</td>
+              <td>Evidence ids absent from serialized records</td>
+              <td>Links unresolvable without rebuilding the model; blocks the evidence graph</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">C3</td>
+              <td>Parallel agents raced to build the vector store</td>
+              <td>Killed the whole investigation with a client-init error the moment two agents retrieved at once</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">C3</td>
+              <td>Report led with confidence on a partial investigation</td>
+              <td>"High confidence (0.98)" opened a risk assessment that measured no on-chain data and searched an empty registry</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">C4</td>
+              <td>Unsupported claims were reported as contradicted</td>
+              <td>"We could not establish this" rendered as "we have reason to believe otherwise" &mdash; the exact conflation the four statuses exist to prevent</td>
+              <td>My design</td>
+            </tr>
+            <tr>
+              <td class="num">C4</td>
+              <td>Risk-engine claims cited figures with no provenance</td>
+              <td>Baselines and z-scores appeared in claims but in no evidence node, so they could not be traced or checked</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">D3</td>
+              <td>The first anomaly benchmark measured nothing</td>
+              <td>Anomalies sat ~15 sigma from baseline, so every metric read 1.000 and the benchmark could not tell a good detector from an adequate one</td>
+              <td>My design</td>
+            </tr>
+            <tr>
+              <td class="num">D3</td>
+              <td>Evaluation divided by zero on an all-good case set</td>
+              <td>Would have reported "0.000 bad claims accepted" for a measurement that never ran</td>
+              <td>Introduced</td>
+            </tr>
+            <tr>
+              <td class="num">E1</td>
+              <td>Evidence cited an endpoint that no longer existed</td>
+              <td>Provenance that outlives the source it names is worse than none &mdash; a reader following the citation finds a 404</td>
+              <td>Pre-existing</td>
+            </tr>
+            <tr>
+              <td class="num">E2</td>
+              <td>Claim kind was agent identity in disguise</td>
+              <td>A documented value would score at maximum in the row where documentation is weakest</td>
+              <td>My design</td>
+            </tr>
+            <tr>
+              <td class="num">E2</td>
+              <td>Chain observations could outvote documentation on mechanism</td>
+              <td>Twenty of them scored 0.891 against a docs source's 0.880 &mdash; the compensatory failure, relocated</td>
+              <td>My design</td>
+            </tr>
+            <tr>
+              <td class="num">E3</td>
+              <td>The block guard rejected every reading it was meant to protect</td>
+              <td>Sequential reads span blocks by construction, making the metric uncollectable rather than imprecise</td>
+              <td>My design</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ NEXT ============ -->
+    <section id="next">
+      <h2>What remains</h2>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Step</th><th>Work</th><th>Blocking</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="num">D3</td><td>Evaluation extension</td><td>Agent selection accuracy, anomaly P/R/F1 on real incidents, unsupported-claim rate</td><td><span class="pill next">Next</span></td></tr>
+            
+            
+            
+            
+          </tbody>
+        </table>
+      </div>
+
+      <h4 class="block">Open items carried forward</h4>
+      <ul class="plain">
+        <li><strong>Routing eval unmeasured since the third axis was added.</strong> Intent accuracy was 87%; a <code>--routing</code> run (~$1.70) would confirm it held.</li>
+        <li><strong>Answer faithfulness never measured at scale.</strong> The <code>--answers</code> eval is the last unmeasured harness; it needs funds and costs meaningfully more per case.</li>
+        <li><strong>Decomposition's effect on answer quality is unmeasured.</strong> We know it triples the evidence surface; we do not know whether that helps.</li>
+        <li><strong>Risk thresholds are calibrated on synthetic data only.</strong></li>
+        <li><s>HyperEVM has no working on-chain source.</s> <strong>Resolved in E1</strong> &mdash; migrated to JSON-RPC, which is a more durable foundation than the explorer API it replaced.</li>
+        <li><strong>The feature store is filling.</strong> An hourly scheduled task now collects Hyperliquid market metrics into it. Each series becomes scoreable at eight readings, so the risk engine reports "not enough history" until then &mdash; which is the correct output, not a placeholder.</li>
+      </ul>
+    </section>
+
+    <!-- ============ GLOSSARY ============ -->
+    <section id="glossary">
+      <h2>Vocabulary</h2>
+
+      <p>
+        These terms have exact meanings in the code, and several distinctions that look
+        pedantic are load-bearing.
+      </p>
+
+      <dl class="gloss">
+        <div><dt>Evidence</dt><dd>One observation, from one source, at one time. Identified by a hash of its content, so the same fact found twice is one node.</dd></div>
+        <div><dt>Claim</dt><dd>An assertion an agent is prepared to be held to. Carries no confidence of its own &mdash; confidence is computed from its evidence, so nothing can score itself.</dd></div>
+        <div><dt>Stance</dt><dd>How a piece of evidence relates to <em>one specific</em> claim: supports, contradicts, or neutral. A property of the relationship, never of the evidence.</dd></div>
+        <div><dt>Source tier</dt><dd>Primary (the chain, or a protocol's own whitelisted docs) &rarr; official &rarr; community &rarr; unverified. Assigned by rule, never by a model.</dd></div>
+        <div><dt>Verified</dt><dd>Evidence was found and it holds up. Distinct from <em>insufficient evidence</em> (we do not know) and <em>contradicted</em> (we have reason to think otherwise).</dd></div>
+        <div><dt>Unknown vs normal</dt><dd>A severity of <em>unknown</em> means a metric could not be assessed. It is never reported as <em>normal</em> &mdash; a blind spot must not read as a clean bill of health.</dd></div>
+        <div><dt>Notable vs anomaly</dt><dd>Notable (≥2σ) earns a row in the statistics table. Anomaly (≥3σ) earns a paragraph. Conflating them is how a detector gets muted.</dd></div>
+        <div><dt>Query type</dt><dd>How much machinery a question needs. A separate axis from <em>intent</em>, which decides whether the agent may act at all &mdash; and intent always wins.</dd></div>
+      </dl>
+    </section>
+
+  </main>
+
+  <footer>
+    Engineering record for DEFI-INFO &middot; generated from the working session and kept current
+    as each step ships. Confidence figures use a transparent but <strong>uncalibrated</strong>
+    scoring model; risk thresholds are calibrated on synthetic data only. Both are stated as such
+    wherever they appear in the system itself.
+  </footer>
+
+</div>

@@ -15,18 +15,29 @@ Local ONNX — no API key, no per-query cost.
 
 from __future__ import annotations
 
+import threading
 from functools import lru_cache
 
 from langchain_core.documents import Document
 
 from src.config import settings
 
+# See `retriever._INIT`. Specialist agents rerank in parallel, and two threads
+# racing to load the same ONNX model is at best duplicated work and at worst a
+# corrupt half-initialised model.
+_INIT = threading.Lock()
+
 
 @lru_cache(maxsize=1)
-def _encoder():
+def _build_encoder():
     from fastembed.rerank.cross_encoder import TextCrossEncoder
 
     return TextCrossEncoder(model_name=settings.rerank_model)
+
+
+def _encoder():
+    with _INIT:
+        return _build_encoder()
 
 
 def rerank(query: str, docs: list[Document], k: int) -> list[Document]:

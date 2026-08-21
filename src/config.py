@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     judge_model_id: str = "claude-opus-4-8"
 
     chroma_dir: Path = ROOT / ".chroma"
+    # Historical on-chain readings. Anomaly detection is a comparison against a
+    # baseline, so this file is what makes the risk engine usable at all.
+    feature_store: Path = ROOT / ".features.sqlite"
     collection: str = "hyperliquid_docs"
     embed_model: str = "BAAI/bge-small-en-v1.5"
     rerank_model: str = "BAAI/bge-reranker-base"
@@ -35,6 +38,13 @@ class Settings(BaseSettings):
 
     # Ablation switch — eval flips this to measure the reranker's contribution.
     rerank_enabled: bool = True
+
+    # Semantic entailment in the Verification Agent: does the evidence actually
+    # bear on the claim it supports? One model call per claim that survived the
+    # free checks. Off by default — the right thing to pay for on an
+    # investigation someone will act on, the wrong thing to pay on every turn.
+    # When off, the report says so rather than implying the check ran.
+    verify_entailment: bool = False
 
     # Deterministic retrieval confidence floor: drop reranked chunks scoring
     # below this, and refuse if none clear it. Disabled by default (None).
