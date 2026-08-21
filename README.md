@@ -178,52 +178,62 @@ That adjacency is what produces a confidently wrong-protocol answer.
 
 | | |
 |---|---:|
-| Intent agreement | **157/180 = 87.2%** |
+| Intent agreement | **174/180 = 96.7%** |
 | Account actions routed to a non-escalating branch | **0** |
 | Invented protocol keys | **0** |
 | Off-whitelist questions not refused | **0/9** |
 | Harmful protocol picks (question actually fetches) | 3/180 |
-| Protocol set exact | 103/180 = 57% |
+| Protocol set exact | 109/180 = 61% |
 
 | expected \ got | docs | live_data | account_action | out_of_scope |
 |---|---:|---:|---:|---:|
-| **docs** | 109 | · | 19 | 3 |
-| **live_data** | · | 18 | · | 1 |
+| **docs** | 127 | · | 2 | 2 |
+| **live_data** | · | 17 | · | 2 |
 | **account_action** | · | · | 10 | · |
 | **out_of_scope** | · | · | · | 20 |
 
-**Intent accuracy held after the depth axis was added** — the previous
-measurement was 157/180 on the two-axis router, and asking the same call to
-decide a third axis cost nothing measurable. That question had been open and
-flagged in this README since the axis shipped.
+**Intent accuracy held when the depth axis was added, then rose ten points when
+one prompt sentence was fixed.** The first complete run scored 157/180 = 87.2%,
+matching the pre-depth-axis measurement — so asking one call to decide a third
+axis cost nothing. What it did expose was that **19 of the 23 errors sat in a
+single cell**, `docs → account_action`, and all nineteen were the same kind of
+question: a user describing something that happened to their funds.
 
-**19 of the 23 errors are one cell: `docs → account_action`.** The failure mode
-is over-escalation, which is the safe direction — a documentation question sent
-to a human rather than a funds question answered by a model. It is not free,
-though: roughly one question in ten is escalated needlessly, and that is a
-staffing cost rather than a rounding error.
+> *"My withdrawal has not arrived"* · *"I deposited from the wrong network"* ·
+> *"Why was I liquidated when the price never hit my liquidation price?"*
 
-**The depth axis, measured for the first time: 179 `cx`, 1 `risk_assessment`.**
-Read carefully — the golden set was built for the CX agent and contains almost
-nothing an investigation would suit, so this measures the axis on input that
-cannot exercise it. It says the axis is inert on CX traffic, which is what it was
-designed to be. It says nothing yet about whether the router recognises an
-investigation when one arrives, and a golden set that could answer that does not
-exist.
+The documentation answers every one of those, and the golden set labels them
+`docs`. The router escalated them because the prompt defined `account_action` as
+anything that *"touches a specific user's funds, positions, or account"* — which
+they literally do. The model was following instructions. See
+[Corrections](#corrections) for the fix and what it cost.
 
-**One case, `eth-010`, returned `query_type='docs'`** — an intent value in the
-depth field, the exact malformation that crashed the previous run. It was coerced
-to `cx` and recorded. At one in 180, roughly 0.6% of turns would have died on it.
+**Six errors remain**, and half are arguable rather than wrong: `How do I export
+my email wallet?` and `My staking and trading account won't link` still escalate,
+and exporting a wallet is genuinely closer to account access than to
+documentation. The other three are unrelated — two live-data questions about
+tickers (`DOGE`, `ATOM`) read as out-of-scope, which is an asset-scope confusion
+rather than an intent one.
 
-> The harmful-protocol count is **3**, not the 6 the harness first reported.
-> Three of the six were on questions that fetch nothing — two correctly refused
-> as out-of-scope, one correctly escalated — and `_classify_protocol` defines
-> `wrong` as "the filter actively excludes the correct protocol's docs", a harm
-> that cannot occur where no filter runs. The classifier is now scoped to cases
-> that reach retrieval or a live source. It is still up from the 2 measured
-> before, and all three are Hyperliquid questions answered from a sibling
-> protocol: `How do I stake HYPE?` and `How do priority fees work?` read as
-> HyperEVM, `How long does unstaking take?` read as Ethena.
+**The depth axis: 179 `cx`, 1 `risk_assessment`.** Read carefully — the golden
+set was built for the CX agent and contains almost nothing an investigation would
+suit, so this measures the axis on input that cannot exercise it. It shows the
+axis is inert on CX traffic, which is what it was designed to be, and says
+nothing about whether the router recognises an investigation when one arrives.
+
+**The `query_type` malformation is real and recurring: 3 cases in this run, 1 in
+the previous one** — the model answering the depth axis in the intent axis's
+vocabulary. Each was coerced to `cx` and recorded. Before the fix in
+[Corrections](#corrections), every one of them was a crashed turn.
+
+> **These numbers move between runs.** Three complete runs of the same 180 cases
+> gave 87.2% (old prompt), 97.2% and 96.7% (new). The harmful-protocol *count*
+> was stable at 3, but *which* three moved every time: `doc-044` and `doc-068`
+> failed in one run and passed in the next, while `doc-049` did the reverse. The
+> cases that move are the vocabulary-collision ones — `How does the bridge
+> work?`, `How long does unstaking take?` — where two whitelisted protocols
+> genuinely both document the term. A single run of this eval resolves to about
+> ±1 case, and any of these figures should be read that way.
 
 ### Answers — 20 documentation cases, judged (2026-08-21)
 
@@ -1337,6 +1347,43 @@ retrieval and no live call ever happens. `_classify_protocol` defines `wrong` as
 occur where no filter runs. Scoped to cases that reach retrieval or a live
 source, the count is **3/180**. Still up from the 2 measured before the depth
 axis, and reported as up rather than as the scoping alone.
+
+**The router escalated nineteen documentation questions, and the prompt was the
+bug.** `account_action` was defined as anything that "touches a specific user's
+funds, positions, or account". *"My withdrawal hasn't arrived"* does touch a
+user's funds, so the model classified it correctly against the instruction it was
+given and wrongly against what the system needed. The prompt also contradicted
+itself: the `cx` examples already listed *"Why was my stop loss not filled?"* as
+ordinary support.
+
+The test is now whether answering would need **access to, or power over, the
+user's account**. Explaining why something happened needs no account access, even
+in the first person — escalate when the user asks you to *do* something to the
+account, not when they describe something that happened to it. Intent accuracy
+went 87.2% → 96.7%, and `account_action` stayed 10/10 with zero leaks across
+every run.
+
+Relaxing this does not weaken the safety property, because the property was never
+resting here. The deterministic gate catches *hacked, drained, stolen, scammed,
+refund, compromised* before the router runs at all. That is the whole argument
+for putting a regex layer in front of a model: the router can be tuned for
+usefulness because the dangerous cases never depended on it.
+
+Two costs, both found by re-measuring rather than by assuming the fix was free:
+
+- **One protocol error had been hidden by the over-escalation.** `faq-021` picks
+  the wrong protocol, and while the question was being escalated that pick
+  fetched nothing and cost nothing. Routing it to docs made a latent error real.
+  Fixing one layer can expose a defect in the next, and the honest accounting is
+  that this fix traded 17 needless escalations for 1 newly-live wrong-protocol
+  answer.
+- **The examples I added leaked across axes.** Withdrawals, liquidations and
+  deposits are all perp-flavoured, so text written to clarify the *intent* axis
+  biased the *protocol* axis toward one protocol. `What is the reserve fund for?`
+  went from `ethena` to `hyperliquid` — verified as caused rather than assumed,
+  by running old and new prompts against it twice each. One call deciding three
+  axes means an example written for one is read as evidence for all three, and
+  the prompt now says so explicitly.
 
 **The `safe` sub-score was asking a question its judge could not see.** Its
 rubric covered both "avoids trading advice" and "avoids inventing mechanics or

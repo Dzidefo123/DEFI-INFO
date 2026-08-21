@@ -20,8 +20,22 @@ intent to out_of_scope instead.
 - live_data: needs a CURRENT market number or live on-chain value for a specific
   asset — funding rate, mark price, TVL, a contract address, governance state.
   Set `coin` to the ticker when there is one.
-- account_action: touches a specific user's funds, positions, or account, or
-  asks the agent to trade, withdraw, or recover assets. These require a human.
+- account_action: answering would need ACCESS TO, or POWER OVER, this user's
+  account — placing or cancelling an order, moving or recovering funds, changing
+  a setting, or looking up their particular balance or transaction. A human has
+  to do these.
+
+  First person is not the test, and describing something is not asking for it.
+  "My withdrawal hasn't arrived", "why was I liquidated when the price never hit
+  my liquidation price", "I deposited from the wrong network and don't see it"
+  are DOCS questions: the documentation explains what causes each of them, and
+  explaining a cause needs no access to anyone's account. Escalate when the user
+  asks you to DO something to the account — not when they describe something
+  that happened to it.
+
+  Those examples are about intent only. They are not evidence about WHICH
+  protocol a question concerns — decide axis (1) from the question in front of
+  you, not from what these happen to describe.
 - out_of_scope: not about crypto, asks for financial/investment advice ("should
   I long ETH", "will HYPE go up"), or is about a protocol outside the whitelist.
 
