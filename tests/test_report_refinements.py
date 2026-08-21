@@ -22,6 +22,7 @@ from src.evidence.models import (
     SourceTier,
     Stance,
     VerificationStatus,
+    utcnow,
 )
 from src.intelligence.plan import build_plan
 from src.reports.intelligence_report import (
@@ -30,8 +31,19 @@ from src.reports.intelligence_report import (
     report_payload,
 )
 
-NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+# Fixtures are stamped relative to the real clock, not a fixed date. Confidence
+# decays with evidence age against wall-clock time, so a hardcoded "now" means
+# these fixtures age one day per day: they encode day-zero freshness and then
+# drift out of it. That is how this file broke the morning after it was written.
+# Offsets below (NOW - timedelta(...)) still express deliberate staleness.
+NOW = utcnow()
 
+
+
+def _day(dt):
+    """The date as the report prints it. Derived from the fixture rather than
+    written out, so the assertion still checks the right date tomorrow."""
+    return dt.strftime("%Y-%m-%d")
 
 def _ev(uri, summary="an observation", tier=SourceTier.PRIMARY, observed_at=NOW):
     return Evidence(
@@ -208,11 +220,12 @@ def test_the_report_states_when_its_evidence_was_true():
     numbers look current because the document is."""
     evs = [_ev("https://chain/a"), _ev("https://chain/b", observed_at=NOW - timedelta(days=30))]
     text = _render(evidence=evs)
-    assert "2026-07-21" in text and "2026-08-20" in text
+    assert _day(NOW - timedelta(days=30)) in text and _day(NOW) in text
 
 
 def test_a_single_day_of_measurements_reads_as_one_date():
-    assert "Measurements are as of **2026-08-20**" in _render(evidence=[_ev("https://a")])
+    text = _render(evidence=[_ev("https://a")])
+    assert "Measurements are as of **" + _day(NOW) + "**" in text
 
 
 def test_documentation_is_dated_by_retrieval_and_says_so():
@@ -227,7 +240,7 @@ def test_documentation_is_dated_by_retrieval_and_says_so():
         collected_at=NOW,
     )
     text = _render(evidence=[doc])
-    assert "retrieved on **2026-08-20**" in text
+    assert "retrieved on **" + _day(NOW) + "**" in text
     assert "own age is not known" in text
     assert "Measurements are as of" not in text
 
@@ -255,7 +268,7 @@ def test_freshness_uses_the_truth_time_not_the_fetch_time():
         observed_at=NOW - timedelta(days=90),
         collected_at=NOW,
     )
-    assert "2026-05-22" in _render(evidence=[stale])
+    assert _day(NOW - timedelta(days=90)) in _render(evidence=[stale])
 
 
 def test_no_evidence_means_no_data_window():
@@ -337,7 +350,7 @@ def test_the_structured_form_reports_independent_lines_not_just_claims():
 def test_the_structured_form_records_the_evidence_window():
     data = _payload(evidence=[_ev("https://a")])
     assert data["evidence_window"]["from"] == data["evidence_window"]["to"]
-    assert data["evidence_window"]["from"].startswith("2026-08-20")
+    assert data["evidence_window"]["from"].startswith(_day(NOW))
 
 
 def test_the_structured_form_declares_its_calibration():

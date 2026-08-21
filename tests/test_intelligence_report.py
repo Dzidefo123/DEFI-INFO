@@ -20,12 +20,18 @@ from src.evidence.models import (
     SourceTier,
     Stance,
     VerificationStatus,
+    utcnow,
 )
 from src.intelligence.plan import build_plan
 from src.reports.intelligence_report import render_report
 from src.risk.signals import assess_metric
 
-NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+# Fixtures are stamped relative to the real clock, not a fixed date. Confidence
+# decays with evidence age against wall-clock time, so a hardcoded "now" means
+# these fixtures age one day per day: they encode day-zero freshness and then
+# drift out of it. That is how this file broke the morning after it was written.
+# Offsets below (NOW - timedelta(...)) still express deliberate staleness.
+NOW = utcnow()
 QUIET = [2.3, 2.1, 2.5, 2.4, 2.2, 2.0, 2.6, 2.3, 2.4, 2.2]
 
 

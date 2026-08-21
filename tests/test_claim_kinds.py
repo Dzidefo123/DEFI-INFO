@@ -29,9 +29,15 @@ from src.evidence.models import (
     SourceTier,
     Stance,
     VerificationStatus,
+    utcnow,
 )
 
-NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+# Fixtures are stamped relative to the real clock, not a fixed date. Confidence
+# decays with evidence age against wall-clock time, so a hardcoded "now" means
+# these fixtures age one day per day: they encode day-zero freshness and then
+# drift out of it. That is how this file broke the morning after it was written.
+# Offsets below (NOW - timedelta(...)) still express deliberate staleness.
+NOW = utcnow()
 
 
 def _ev(uri, tier, kind=EvidenceKind.DOCUMENT, summary="an observation"):
