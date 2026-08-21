@@ -773,6 +773,15 @@ why the default stays at 5.
 
 ## Layout
 
+Module docstrings cite section numbers (`§8`, `§13`) from the architecture brief
+this system was built against. That document is not in the repository — the
+sections map to the components below, and each docstring states the reasoning in
+full rather than deferring to it:
+
+`§8` research · `§9` blockchain · `§10` security · `§11` risk engine ·
+`§13` verification · `§14` evidence graph · `§15` reports · `§16` confidence ·
+`§19` evaluation
+
 ```
 src/
   protocols.py             the whitelist: registry, domain/path rules, copy helpers
@@ -892,6 +901,80 @@ answer anyway because the tax/legal guardrail refuses those questions *before*
 retrieval runs. The exclusion pattern is `risk-disclosures`, not `risk` — the
 `protocol-overview/risks/*` pages are the substance behind six collision cases,
 and a looser rule would have deleted exactly what this protocol was added to test.
+
+---
+
+## How this was built
+
+### The multi-protocol migration
+
+The system began as a single-protocol support agent. Nine incremental changes
+turned it into a multi-protocol one, each shipping with the app runnable and
+tests green:
+
+| | Change |
+|---|---|
+| PR 0 | Protocol registry + source whitelist (a security boundary, not a convenience) |
+| PR 1 | Chunks tagged with their protocol |
+| PR 2 | Protocol-filtered hybrid search |
+| PR 3 | Generalised ingestion, robots.txt respected, whitelist enforced at fetch |
+| PR 4 | Dual-axis router: which protocols + stable-vs-volatile |
+| PR 5 | Live-data tool registry |
+| PR 6 | Grounding and refusal hardening |
+| PR 7 | Protocol-neutral copy, expanded golden set |
+| PR 8 | Third protocol onboarded — Ethena, chosen because its vocabulary *collides* |
+
+At the end of that: 201 tests, 1,091 chunks, 218 golden cases.
+
+### The intelligence platform
+
+Built in phases, app runnable and suite green between each. The order was chosen
+so that the deterministic, exhaustively-testable pieces came first — the
+vocabulary and the arithmetic — before anything that needed a model.
+
+| | | Tests |
+|---|---|---:|
+| A0 | Index integrity — drift detection and local repair | 216 |
+| A1 | Evidence, claims, the confidence model | 278 |
+| A2 | Statistical risk engine | 337 |
+| B1 | Query classification + safety clamp | 425 |
+| B2 | Investigation branch, planner, report | 510 |
+| C1 | Research Agent | 543 |
+| C2 | Blockchain Agent + feature store | 612 |
+| C3 | Security Agent + incident registry | 651 |
+| C4 | Verification Agent | 702 |
+| D1 | Evidence graph | 731 |
+| D2 | Report refinements + structured output | 759 |
+| D3 | Evaluation extension | 796 |
+| E1 | Chain reads over JSON-RPC | 815 |
+| E2 | Chain-state tier + claim-kind weighting | 848 |
+| E3 | Contract registry | 875 |
+
+**Placeholder agents refused rather than reassured.** Before each specialist was
+real, its stub contributed zero claims and recorded a limitation. An
+unimplemented security agent returning "no incidents found" would have been the
+most dangerous line in the repository: indistinguishable downstream from a real
+negative finding, and strictly more confident than the evidence permitted.
+
+### Where the defects came from
+
+| Origin | Count | Character |
+|---|---:|---|
+| Pre-existing and silent | 7 | Every one had passing unit tests over the code containing it |
+| Introduced, caught by tests | 10 | Found before shipping |
+| Design flaws | 6 | Three caught by tests, three by review |
+
+The pre-existing category is the instructive one. A guardrail's carefully-worded
+compromise warning never reached a user, because a second node overwrote it —
+while every unit test on that copy passed. An index accumulated 1,157 orphans
+across rebuilds while retrieval numbers merely sat lower than they should have.
+Neither failed loudly.
+
+The three design flaws caught by review rather than tests share a shape: the
+tests were written to confirm the design, so they could not challenge its
+premise. A geometric mean that made verification compensatory, a claim taxonomy
+that was really agent identity, and a benchmark whose anomalies sat fifteen sigma
+from baseline all passed everything asked of them.
 
 ---
 
@@ -1020,9 +1103,46 @@ added that a specific requirement did not force.
 
 ---
 
-## Further reading
+## Where this goes next
 
-- [`docs/PROJECT-SUMMARY.md`](docs/PROJECT-SUMMARY.md) — what the project is for,
-  where it came from, and every measured parameter with its caveats.
-- [`docs/build-log.html`](docs/build-log.html) — the phase-by-phase engineering
-  record: decisions, measurements and defects at each step.
+The backend is more capable than anything that can currently be seen. Most of the
+sophistication is inside tests, evaluation harnesses and graph state — which
+makes the interface, not more agents, the highest-value next step.
+
+**The positioning is not "an AI chatbot for DeFi".** Everyone has agents and
+everyone has retrieval. What is differentiated here is the combination of
+evidence, verification, coverage and deterministic analytics — a system that
+distinguishes what was found, what was not found, and what was never
+investigated.
+
+A plausible sequence:
+
+1. **An API layer** over the existing engine. The report already serialises as
+   structured JSON, and the evidence graph as node/edge lists, so those endpoints
+   are mostly serialisation. Investigations are currently synchronous, though, so
+   this needs background execution and status polling — it is not a thin wrapper.
+2. **A minimal interface**: ask, investigate, watch execution, read the result.
+3. **An evidence explorer** — claim → evidence → source, traversable. This should
+   be prioritised over dashboards, because explainability through traceable
+   evidence is the actual differentiator.
+4. **Monitoring**, eventually: scheduled collection already runs, so the gap
+   between "collect hourly" and "detect a signal, open an investigation, verify,
+   alert" is smaller than it looks. That is the shift from *"ask what happened"*
+   to *"the system noticed and looked into it"*.
+
+### Two problems to solve before that, not during it
+
+**The flagship question has the least data behind it.** "Is this protocol showing
+unusual activity?" is what the product is *for*, and today Ethena has no on-chain
+source, the security registry is empty by design, and the feature store is days
+old. An investigation into a protocol returns an honest *"partial investigation —
+nothing was measured"*. That is correct behaviour and a poor demonstration.
+Either widen the data or narrow the product to documentary research, where the
+evidence explorer works today.
+
+**Honest incompleteness is a user-experience problem, not just a copy problem.**
+The system's defining quality is that it says "I don't know" precisely. In a
+terminal that reads as rigour. In an interface, a prominent *"nothing was
+measured"* may read as broken. Making a coverage gap feel like discipline rather
+than failure is a genuine design question, and "make coverage visible" does not
+answer it.
