@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     rerank_model: str = "BAAI/bge-reranker-base"
 
     hyperliquid_api: str = "https://api.hyperliquid.xyz"
-    # HyperEVM on-chain reads via the Hyperscan Blockscout explorer (keyless).
+    # Link base only. Chain reads go over JSON-RPC (src/blockchain/rpc.py); this
+    # is what turns an address or block into a URL a reader can open to check a
+    # citation, so it must point at a human-facing explorer, not an API host.
     hyperevm_explorer: str = "https://www.hyperscan.com"
 
     chunk_chars: int = 1400
