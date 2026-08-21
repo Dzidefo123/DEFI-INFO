@@ -32,9 +32,14 @@ from src.evidence.models import (
     SourceTier,
     Stance,
     VerificationStatus,
+    utcnow,
 )
 
-NOW = datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc)
+# Relative to the real clock, not a fixed date: `verify_all` ages evidence against
+# wall-clock time, so a pinned "now" makes these fixtures decay a day per day. The
+# DOCUMENT half-life is long enough that this fuse ran ~730 days, which is worse
+# than a short one — it would have fired long after anyone connected it to here.
+NOW = utcnow()
 
 
 def _ev(uri, summary="an observation", tier=SourceTier.PRIMARY,
