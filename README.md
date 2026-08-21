@@ -636,6 +636,47 @@ every false positive an ordinary ~2σ day, which fires one day in twenty *per
 metric*. Moving to 3σ gave precision 1.00 with no recall lost. `elevated` is still
 surfaced as a reportable state; it just is not a finding.
 
+### Invariants, where statistics are structurally blind
+
+Some metrics are not interesting when unusual — they are interesting when
+**wrong**, and what counts as wrong comes from the protocol's design rather than
+from history.
+
+The wrapper backing ratio is the case that forced this. WHYPE holds one unit of
+native coin per wrapped token, so the series reads 1.0 every hour, forever, until
+the day it does not. Every property that makes the statistical engine careful
+turns against it here. A constant series has σ = 0, so no z-score exists;
+"undefined returns undefined" then reports `unknown` — correctly, and uselessly.
+Measured on live data: nine consecutive readings of exactly 1.0, `unknown` on all
+nine, and a tenth reading of 0.97 would also have scored `unknown`, not an
+anomaly. **The system was blind to the one number whose breach matters most, and
+blind in the shape of a shrug.**
+
+An invariant is declared on the metric spec and checked independently of any
+baseline:
+
+- **No history is required.** A backing ratio of 0.8 is wrong on the first
+  reading. The statistical path needs eight observations before it says anything,
+  so a freshly wiped feature store could not report an insolvent wrapper for
+  eight hours — and would then report `unknown`.
+- **Constancy becomes evidence of health.** The flat series that defeats a
+  z-score is precisely the invariant holding, and a satisfied invariant reports
+  `normal` rather than `unknown`. A check that passed and a check that never ran
+  no longer look identical.
+- **Bounds are directional.** Below 1.0 the wrapper has issued tokens it cannot
+  redeem: insolvency. Above 1.0 someone deposited without minting: a donation or
+  a mistake, and no holder is worse off. Scoring both as "deviation from 1.0"
+  would raise a solvency alarm over a stray transfer, so the permitted side is
+  reported as a note and not as a finding.
+- **Any breach is a finding.** The 3σ bar suppresses false positives from
+  ordinary variation. A violated invariant is not ordinary variation, so there is
+  no false-positive rate to suppress.
+
+The two checks combine by taking the worse of the two, and neither subsumes the
+other — they answer "is this unusual for this metric" and "is this metric wrong".
+A report says which one fired, because they warrant different responses and a
+z-score is evidence for neither.
+
 ---
 
 ## The evidence graph

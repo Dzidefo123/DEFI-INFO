@@ -18,10 +18,11 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from datetime import datetime
-from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.risk.invariants import Breach, Invariant
+from src.risk.severity import Severity, at_least, max_severity
 from src.risk.statistics import (
     Baseline,
     InsufficientHistory,
@@ -32,24 +33,16 @@ from src.risk.statistics import (
     z_score,
 )
 
-
-class Severity(str, Enum):
-    """How far outside normal a signal sits. Ordered."""
-
-    UNKNOWN = "unknown"    # could not be assessed; NOT the same as normal
-    NORMAL = "normal"
-    ELEVATED = "elevated"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-
-_SEVERITY_ORDER = {
-    Severity.UNKNOWN: -1,
-    Severity.NORMAL: 0,
-    Severity.ELEVATED: 1,
-    Severity.HIGH: 2,
-    Severity.CRITICAL: 3,
-}
+__all__ = [
+    "Breach",
+    "Invariant",
+    "RiskSignal",
+    "Severity",
+    "assess_metric",
+    "explain",
+    "max_severity",
+    "severity_for",
+]
 
 # |z| thresholds, ascending. Under a normal distribution 2σ is roughly a 1-in-20
 # reading and 3σ about 1-in-370 — but on-chain metrics are heavy-tailed, so
@@ -81,13 +74,6 @@ def severity_for(score: float | None) -> Severity:
     return Severity.NORMAL
 
 
-def max_severity(severities: Sequence[Severity]) -> Severity:
-    """The worst severity present. UNKNOWN loses to any real assessment."""
-    if not severities:
-        return Severity.UNKNOWN
-    return max(severities, key=lambda s: _SEVERITY_ORDER[s])
-
-
 class RiskSignal(BaseModel):
     """One metric, judged against its own history. The §11.2 schema.
 
@@ -110,6 +96,11 @@ class RiskSignal(BaseModel):
     severity: Severity = Severity.UNKNOWN
     observed_at: datetime | None = None
     note: str | None = None
+    # Set when the metric declares an invariant and that invariant is violated.
+    # Its presence is what makes a finding a broken property rather than an
+    # unusual reading, and the report says so — the two warrant different
+    # responses, and a z-score is not evidence for either.
+    breach: Breach | None = None
 
     @property
     def signal_id(self) -> str:
@@ -137,13 +128,18 @@ class RiskSignal(BaseModel):
 
         UNKNOWN is not an anomaly — an unassessable metric has not been shown to
         be unusual. It is also not normal; see `severity_for`.
+
+        A broken invariant is an anomaly at any severity. The 3σ bar exists to
+        stop a detector firing on ordinary variation, and a violated invariant is
+        not ordinary variation — it is a property the protocol is supposed to
+        guarantee, failing. There is no rate of false positives to suppress.
         """
-        return _SEVERITY_ORDER[self.severity] >= _SEVERITY_ORDER[Severity.HIGH]
+        return self.breach is not None or at_least(self.severity, Severity.HIGH)
 
     @property
     def notable(self) -> bool:
         """Elevated or worse: worth reporting in the statistics table."""
-        return _SEVERITY_ORDER[self.severity] >= _SEVERITY_ORDER[Severity.ELEVATED]
+        return self.breach is not None or at_least(self.severity, Severity.ELEVATED)
 
     @property
     def direction(self) -> str:
@@ -172,8 +168,9 @@ def assess_metric(
     history: Sequence[float],
     protocol: str | None = None,
     observed_at: datetime | None = None,
+    invariant: Invariant | None = None,
 ) -> RiskSignal:
-    """Judge one observation against its prior history.
+    """Judge one observation against its prior history, its invariant, or both.
 
     `history` must exclude `current_value`. Passing the full series including the
     current point is the mistake this signature is shaped to discourage: it makes
@@ -184,7 +181,60 @@ def assess_metric(
     score is the one detecting something the classical score has been blinded to
     — and under-reporting a real anomaly costs more here than looking twice at a
     false one.
+
+    An `invariant` is checked independently of all of that, and its verdict is
+    combined by taking the worse of the two. The two checks answer different
+    questions — "is this unusual for this metric" and "is this metric wrong" — and
+    neither subsumes the other. Their independence is the point: the invariant
+    still returns a verdict when there is no history at all, and when the history
+    is so flat that no z-score exists.
     """
+    statistical = _statistical(metric, current_value, history, protocol, observed_at)
+    if invariant is None:
+        return statistical
+    return _with_invariant(statistical, invariant, current_value)
+
+
+def _with_invariant(
+    signal: RiskSignal, invariant: Invariant, current_value: float
+) -> RiskSignal:
+    """Fold an invariant verdict into a statistical one.
+
+    `max_severity` ranks UNKNOWN below NORMAL, which is what makes this safe: a
+    satisfied invariant on a metric with no usable baseline comes out NORMAL,
+    because something was genuinely checked and passed. That is the fix for the
+    case this module exists for — a series constant at 1.0 used to report UNKNOWN
+    forever, which reads as a blind spot when it is in fact the healthiest
+    possible state.
+    """
+    from src.risk.invariants import holding_note
+
+    breach = invariant.check(current_value)
+    verdict = breach.severity if breach else Severity.NORMAL
+    detail = breach.explain() if breach else holding_note(invariant, current_value)
+    # The statistical note survives alongside it. When a metric has too little
+    # history, that remains true and worth saying even though the invariant
+    # carries the verdict.
+    note = f"{signal.metric} {detail}"
+    if signal.note and breach is None:
+        note = f"{note} Separately: {signal.note}"
+
+    return signal.model_copy(
+        update={
+            "severity": max_severity([verdict, signal.severity]),
+            "breach": breach,
+            "note": note,
+        }
+    )
+
+
+def _statistical(
+    metric: str,
+    current_value: float,
+    history: Sequence[float],
+    protocol: str | None,
+    observed_at: datetime | None,
+) -> RiskSignal:
     try:
         base = baseline(history)
     except InsufficientHistory as exc:
@@ -256,8 +306,26 @@ def explain(signal: RiskSignal) -> str:
     write — and having it available deterministically means the report is
     reproducible, cheap, and identical every time the same numbers are seen.
     """
+    if signal.breach is not None:
+        # The broken property is the finding and leads the sentence. A z-score
+        # computed on the same reading is at best corroboration and at worst
+        # noise: the baseline for an invariant metric is a history of the
+        # invariant holding, so a deviation from it says only that the property
+        # used to be satisfied — which is already implied by calling it a breach.
+        out = f"{signal.metric} {signal.breach.explain()} Severity: {signal.severity.value}."
+        if signal.z is not None:
+            out += f" (For reference, z={signal.z:+.2f} against prior readings.)"
+        return out
+
     if signal.severity is Severity.UNKNOWN:
         return signal.note or f"{signal.metric} could not be assessed."
+
+    # A satisfied invariant is the whole story only when nothing else fired.
+    # Short-circuiting on it unconditionally would swallow a real statistical
+    # finding on a metric that happens to also carry an invariant.
+    holds = signal.note and "invariant holds" in signal.note
+    if holds and signal.severity is Severity.NORMAL:
+        return signal.note if signal.note.endswith(".") else f"{signal.note}."
 
     base = signal.baseline
     parts = [
@@ -271,8 +339,14 @@ def explain(signal: RiskSignal) -> str:
         parts.append(f"robust z={signal.modified_z:+.2f}")
     if signal.iqr_outlier:
         parts.append("outside the 1.5×IQR fence")
+    # A degenerate baseline yields no scores at all, leaving nothing to join.
+    # Without this the sentence renders as "... over 8 observations). . Severity".
     tail = ", ".join(parts[1:])
-    out = f"{parts[0]} {tail}. Severity: {signal.severity.value}."
+    out = f"{parts[0]} {tail}. Severity: {signal.severity.value}." if tail else (
+        f"{parts[0]} Severity: {signal.severity.value}."
+    )
+    if holds:
+        out += f" Its {signal.note.split(signal.metric + ' ', 1)[-1]}."
     if signal.scores_disagree:
         out += (
             " The classical and robust scores disagree, which usually means the "

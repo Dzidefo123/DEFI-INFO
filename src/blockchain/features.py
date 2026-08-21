@@ -45,6 +45,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
+from src.risk.invariants import Bound, Invariant
+
 
 class MetricKind(str, Enum):
     GAUGE = "gauge"            # a reading; score it directly
@@ -75,6 +77,12 @@ class MetricSpec(BaseModel):
     # describes a period. Defaulting them to the same decay would make the
     # shortest-lived readings the most overconfident.
     evidence_kind: str = "on_chain_metric"
+    # A property this metric must satisfy regardless of its history. Declared on
+    # the spec rather than passed at the call site so that every consumer of a
+    # metric gets the same check — an invariant enforced in one code path and
+    # forgotten in another is worse than none, because the passing path implies
+    # the property was verified.
+    invariant: Invariant | None = None
 
     @property
     def is_cumulative(self) -> bool:
@@ -206,9 +214,15 @@ _SPECS: tuple[MetricSpec, ...] = (
     ),
     # The invariant, and the reason this is worth collecting at all. A wrapper
     # should hold exactly one unit of native coin per wrapped token, so this
-    # series should sit at 1.0 and any sustained deviation is under- or
+    # series sits at 1.0 and any sustained deviation is under- or
     # over-collateralisation — a real finding rather than a statistic about
     # activity. Measured 1.000000 on 2026-08-21.
+    #
+    # It is declared rather than learned because a flat series is unscoreable by
+    # construction: nine identical readings give a baseline with zero spread, so
+    # every z-score is undefined and the metric reports UNKNOWN however far it
+    # later moves. The statistical path is blind here precisely because the
+    # protocol is working.
     MetricSpec(
         key="wrapper_backing_ratio",
         protocol="hyperevm",
@@ -217,6 +231,22 @@ _SPECS: tuple[MetricSpec, ...] = (
         unit="ratio",
         description="Native backing per wrapped token",
         evidence_kind="chain_state",
+        invariant=Invariant(
+            target=1.0,
+            # AT_LEAST, not EQUALS, because the two directions are not the same
+            # event. Below 1.0 the wrapper has issued tokens it cannot redeem,
+            # which is insolvency. Above 1.0 someone has sent native coin to the
+            # contract without minting — a donation or a mistake, and no holder is
+            # worse off. Scoring both as "deviation from 1.0" would raise a
+            # solvency alarm over a stray transfer.
+            bound=Bound.AT_LEAST,
+            rationale=(
+                "A wrapper mints one token per unit of native coin deposited and "
+                "burns one per unit withdrawn, so its native balance must cover "
+                "its total supply. A shortfall means tokens exist that cannot be "
+                "redeemed."
+            ),
+        ),
     ),
 )
 

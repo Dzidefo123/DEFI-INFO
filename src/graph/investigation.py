@@ -182,14 +182,21 @@ def blockchain_agent(state: AgentState) -> dict:
         "errors": list(result.limitations),
         "blockchain_results": {
             "status": "ok",
-            # The contract `risk_engine` reads. Keyed by the metric name that is
-            # actually scored, which for a cumulative counter is its derived rate.
+            # The contract `risk_engine` reads. Keyed by metric AND subject: a
+            # per-market metric produces one series per market, and keying on the
+            # metric alone silently kept only the last one — three markets in,
+            # one scored, no error anywhere. The scored name stays in `metric`,
+            # so the composite key never reaches a report.
             "metrics": {
-                s.metric: {
+                f"{s.metric}@{s.subject}" if s.subject else s.metric: {
+                    "metric": s.metric,
                     "current": s.current,
                     "history": list(s.history),
                     "protocol": s.protocol,
                     "subject": s.subject,
+                    # Carried as a plain dict: LangGraph state is msgpack-encoded
+                    # and a Pydantic model here degrades to one silently.
+                    "invariant": s.invariant.model_dump(mode="json") if s.invariant else None,
                 }
                 for s in result.series
             },
@@ -277,12 +284,18 @@ def risk_engine(state: AgentState) -> dict:
     evidence = parse_evidence(state)
     signals, claims, derived = [], [], []
 
-    for name, series in metrics.items():
+    from src.risk.invariants import Invariant
+
+    for key, series in metrics.items():
+        # `key` disambiguates per-market series; `metric` is what a report shows.
+        name = series.get("metric") or key
+        raw_invariant = series.get("invariant")
         signal = assess_metric(
             metric=name,
             current_value=series["current"],
             history=series.get("history") or [],
             protocol=series.get("protocol"),
+            invariant=Invariant.model_validate(raw_invariant) if raw_invariant else None,
         )
         signals.append(dump(signal))
 

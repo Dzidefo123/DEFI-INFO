@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict
 from src.blockchain import store
 from src.blockchain.collectors import Collection, collect
 from src.blockchain.features import get_spec, prepare_for_scoring
+from src.risk.invariants import Invariant
 from src.blockchain.store import Observation
 from src.config import settings
 from src.evidence.models import (
@@ -80,10 +81,19 @@ class MetricSeries(BaseModel):
     current: float
     history: tuple[float, ...] = ()
     observed_at: datetime
+    invariant: Invariant | None = None
 
     @property
     def scoreable(self) -> bool:
-        return len(self.history) >= MIN_BASELINE_N
+        """Whether this series can be judged at all.
+
+        An invariant needs no history: a backing ratio of 0.8 is a breach on the
+        first reading. Gating it behind `MIN_BASELINE_N` would mean a freshly
+        wiped feature store could not report an insolvent wrapper for eight
+        hours — and the property being checked is fixed by the contract's design,
+        so waiting adds nothing to what is already knowable.
+        """
+        return self.invariant is not None or len(self.history) >= MIN_BASELINE_N
 
 
 class BlockchainOutput(BaseModel):
@@ -165,6 +175,7 @@ def _series_for(observation: Observation, path=None) -> tuple[MetricSeries | Non
         current=current,
         history=tuple(history),
         observed_at=observation.observed_at,
+        invariant=spec.invariant,
     )
     if not series.scoreable:
         return series, (
