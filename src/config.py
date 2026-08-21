@@ -12,6 +12,26 @@ class Settings(BaseSettings):
 
     model_id: str = "claude-opus-4-8"
     router_model_id: str = "claude-opus-4-8"
+    # Stays on Opus, and the attempt to move it is why this comment is long.
+    #
+    # `--answers` spends most of its money judging: the faithfulness judge makes
+    # one call PER CLAIM, and 20 answers carried 302 claims. Haiku is a fifth the
+    # price and the task looks narrow enough — "is this one sentence supported by
+    # this passage". Calibrated head-to-head on the same 20 cases, it was not.
+    #
+    # The two judges disagreed on 7 of 20 cases, and the disagreement that
+    # settled it was `doc-009`. Opus caught the answer asserting "IOC typically
+    # stands for Immediate-Or-Cancel" — true in the world, absent from the
+    # retrieved context, exactly the ungrounded claim this metric exists to find.
+    # Haiku scored the same answer 1.00, and not by disagreeing: it never
+    # extracted that claim at all.
+    #
+    # That is the failure mode to fear here. Faithfulness is
+    # supported / extracted, so a claim the extractor misses cannot be found
+    # unsupported and silently RAISES the score. A weaker extractor produces a
+    # more flattering number, which is the wrong direction for a metric whose job
+    # is to catch flattery. Haiku extracted 91% of Opus's claims overall and
+    # ranged from 47% to 150% per case.
     judge_model_id: str = "claude-opus-4-8"
 
     chroma_dir: Path = ROOT / ".chroma"

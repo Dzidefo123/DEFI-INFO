@@ -28,6 +28,27 @@ PRICING = {
     "claude-haiku-4-5": (1.00, 5.00),
 }
 
+
+def rate_for(model: str) -> tuple[float, float]:
+    """Price for a model id, matched on prefix.
+
+    The API returns a dated id for some models and a bare one for others —
+    `claude-haiku-4-5-20251001` against `claude-opus-4-8`. An exact-match table
+    prices the dated ones at zero, which is the worst possible way to be wrong
+    about cost: a report reading $0.00 because a key did not match is
+    indistinguishable from a report reading $0.00 because nothing was spent.
+
+    Unknown models still return (0, 0), but the caller records the name so the
+    gap is visible rather than absorbed into the total.
+    """
+    if model in PRICING:
+        return PRICING[model]
+    for key, rate in PRICING.items():
+        if model.startswith(key):
+            return rate
+    return (0.0, 0.0)
+
+
 _current_node: contextvars.ContextVar[str] = contextvars.ContextVar(
     "current_node", default="unknown"
 )
@@ -56,6 +77,10 @@ class NodeStats:
 @dataclass
 class Report:
     nodes: dict[str, NodeStats] = field(default_factory=dict)
+    # Models seen that no PRICING entry covers. Their tokens are counted, their
+    # cost is not, and a total computed over them understates the true spend —
+    # so the names are kept rather than the shortfall being silently absorbed.
+    unpriced: set[str] = field(default_factory=set)
 
     def stat(self, name: str) -> NodeStats:
         return self.nodes.setdefault(name, NodeStats())
@@ -115,11 +140,18 @@ class UsageCollector(BaseCallbackHandler):
         usage, model = _extract_usage(response)
         if not usage:
             return
+        self._record(usage, model)
+
+    def _record(self, usage: dict, model: str) -> None:
+        """Attribute one call's tokens and cost. Separate from `on_llm_end` so
+        the pricing rule can be tested without constructing an LLMResult."""
         stat = self.report.stat(_current_node.get())
         stat.input_tokens += usage.get("input_tokens", 0)
         stat.output_tokens += usage.get("output_tokens", 0)
 
-        rate_in, rate_out = PRICING.get(model, (0.0, 0.0))
+        rate_in, rate_out = rate_for(model)
+        if model and (rate_in, rate_out) == (0.0, 0.0):
+            self.report.unpriced.add(model)
         stat.cost_usd += (
             usage.get("input_tokens", 0) / 1e6 * rate_in
             + usage.get("output_tokens", 0) / 1e6 * rate_out

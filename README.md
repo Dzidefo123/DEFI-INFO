@@ -284,6 +284,33 @@ clearest evidence for why retrieval is treated here as the ceiling on answer
 quality rather than one component among several — the miss did not stay in
 retrieval, it propagated into an ungrounded claim.
 
+**A cheaper judge was tried and rejected.** Judging costs about five times more
+than answering here — the faithfulness judge makes one call *per claim*, and
+these 20 answers carried 302 of them — so Haiku at a fifth the price is the
+obvious saving. Run head-to-head on the same 20 cases, it disagreed with Opus on
+**7 of 20**, and the case that settled it was `doc-009`: Haiku scored 1.00 where
+Opus scored 0.67, and **not by disagreeing — it never extracted the claim.**
+
+That is the failure mode to fear in this metric. Faithfulness is
+*supported ÷ extracted*, so a claim the extractor misses cannot be found
+unsupported, and its absence **raises** the score. A weaker extractor produces a
+more flattering number, which is precisely the wrong direction for a measurement
+whose job is to catch flattery. Haiku extracted 91% of Opus's claims overall and
+ranged from 47% to 150% case by case.
+
+The saving was real and was not worth taking. `judge_model_id` stays on Opus, and
+`--answers` stays the expensive harness.
+
+| | Opus | Haiku |
+|---|---:|---:|
+| Mean faithfulness | 0.982 | 0.968 |
+| Claims extracted (total) | 302 | 275 |
+| Cases in disagreement | — | 7/20 |
+| Caught the `doc-009` ungrounded claim | **yes** | no |
+
+The two means are close enough to look interchangeable, which is the argument for
+comparing judges case by case rather than on an aggregate.
+
 > **The `safe` sub-score is not measuring what it says, and should be read with
 > that in mind.** Its rubric asks whether an answer avoids trading advice *and*
 > avoids inventing mechanics or numbers — but `quality()` is passed only the
@@ -1402,6 +1429,21 @@ Two costs, both found by re-measuring rather than by assuming the fix was free:
   by running old and new prompts against it twice each. One call deciding three
   axes means an example written for one is read as evidence for all three, and
   the prompt now says so explicitly.
+
+**An answer nobody could extract a claim from scored 1.00.** `faithfulness`
+returned a perfect score when the extractor came back empty, reasoning that a
+refusal cannot hallucinate. True of a refusal, and the code could not tell a
+refusal from an extractor that simply failed.
+
+`doc-018` is a 1,440-character answer carrying a maintenance-margin formula. The
+Opus extractor returned zero claims for it, so it scored 1.00 and lifted the
+published mean. The same answer yielded 18 claims from a different extractor, so
+it was never claim-free — the measurement failed and reported success.
+
+Zero claims checked is zero faithfulness established, whatever the cause. It now
+returns `None`, is excluded from the mean, and is reported as unmeasured. This is
+the "silence is safety" failure the repository is built to prevent, found for the
+second time inside the tool that measures it.
 
 **The `safe` sub-score was asking a question its judge could not see.** Its
 rubric covered both "avoids trading advice" and "avoids inventing mechanics or

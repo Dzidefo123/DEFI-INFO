@@ -82,16 +82,29 @@ def _judge(max_tokens: int = 1024) -> ChatAnthropic:
     )
 
 
-def faithfulness(answer: str, context: str) -> tuple[float, list[tuple[str, bool]]]:
+def faithfulness(answer: str, context: str) -> tuple[float | None, list[tuple[str, bool]]]:
     """Return (supported_claims / total_claims, per-claim verdicts).
 
-    An answer with no factual claims scores 1.0 — a refusal cannot hallucinate.
+    `None` when no claims were extracted, which is NOT the same as a perfect
+    score. This used to return 1.0, reasoning that a refusal cannot hallucinate —
+    true, but the code cannot tell a refusal from an extractor that came back
+    empty, and the two are opposite.
+
+    Measured on 2026-08-21: `doc-018` is a 1,440-character answer carrying a
+    maintenance-margin formula, and the Opus extractor returned zero claims for
+    it. It scored 1.00 and lifted the mean. The same answer yielded 18 claims
+    from a different extractor, so the answer was not claim-free — the
+    measurement failed and reported success.
+
+    Scoring an unverified answer 1.0 is the "silence is safety" failure this
+    repository exists to prevent, committed by the tool that measures it. Zero
+    claims checked means zero faithfulness established, whatever the reason.
     """
     extracted: Claims = _judge().with_structured_output(Claims).invoke(
         [("system", CLAIMS), ("human", answer)]
     )
     if not extracted.claims:
-        return 1.0, []
+        return None, []
 
     verdicts = []
     for claim in extracted.claims:

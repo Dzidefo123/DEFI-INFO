@@ -578,19 +578,32 @@ def eval_answers(cases: list[dict], limit: int = 20, dump_path: str | None = Non
 
     table = Table("id", "faithful", "helpful", "cited", "safe", title="answer quality")
     for cid, f, q in rows:
-        table.add_row(cid, f"{f:.2f}", str(q.helpful), str(q.cited), str(q.safe))
+        table.add_row(cid, "n/a" if f is None else f"{f:.2f}",
+                      str(q.helpful), str(q.cited), str(q.safe))
     console.print(table)
 
     dump.close("per-case answers")
 
     n = len(rows)
-    mean_faith = sum(faith_scores) / n
+    # Cases where no claim could be extracted leave the faithfulness denominator.
+    # They used to enter it as 1.00, which let a failed measurement raise the
+    # score — see `judge.faithfulness`.
+    scored = [f for f in faith_scores if f is not None]
+    unmeasured = len(faith_scores) - len(scored)
+    mean_faith = sum(scored) / len(scored) if scored else None
     means = [sum(s[i] for s in quality_scores) / n for i in range(3)]
+
+    faith_text = f"{mean_faith:.2f} over {len(scored)}" if mean_faith is not None else "n/a"
     console.print(
-        f"[bold]faithfulness {mean_faith:.2f} | helpful {means[0]:.1f}/5 | "
+        f"[bold]faithfulness {faith_text} | helpful {means[0]:.1f}/5 | "
         f"cited {means[1]:.1f}/5 | safe {means[2]:.1f}/5[/bold]"
     )
-    return {"faithfulness": mean_faith}
+    if unmeasured:
+        console.print(
+            f"[yellow]{unmeasured} answer(s) yielded no extractable claims and are "
+            f"excluded — not scored 1.00[/yellow]"
+        )
+    return {"faithfulness": mean_faith, "unmeasured": unmeasured}
 
 
 _FLAGS = (
