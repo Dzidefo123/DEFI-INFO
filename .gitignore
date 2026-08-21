@@ -15,3 +15,6 @@ eval_routing_out.txt
 eval_answers_out.txt
 eval_routing_dump.jsonl
 eval_answers_dump.jsonl
+eval_answers_smoke.jsonl
+eval_*.jsonl
+eval_*_out.txt
