@@ -255,72 +255,51 @@ vocabulary. Each was coerced to `cx` and recorded. Before the fix in
 
 ### Answers — 20 documentation cases, judged (2026-08-21)
 
-The harness this README had never run to completion. Each case takes the
-production path — the router's protocol decision reaches retrieval — so the judge
-scores an answer built from the context the agent would actually have had.
+Each case takes the production path — the router's protocol decision reaches
+retrieval — so the judge scores an answer built from the context the agent would
+actually have had.
 
 | | |
 |---|---:|
-| Faithfulness (claim-level, against retrieved context) | **0.98** |
+| Faithfulness (claim-level, against retrieved context) | **1.00 over 19** |
+| Answers yielding no extractable claims | 1, excluded |
 | Helpful | 4.8/5 |
-| Cited | 4.9/5 |
-| Safe | 4.8/5 |
+| Cited | 5.0/5 |
+| Safe (advice only — see below) | 5.0/5 |
 
-19 of 20 answers were fully faithful. The exception is the interesting one.
+**The denominator is 19, not 20, and that is the point.** One answer produced no
+extractable claims. That case used to score 1.00 and lift the mean; it is now
+excluded and counted, because zero claims checked is zero faithfulness
+established. Which case it happens to be is random — it was `doc-018` on the
+first run and `doc-004` on the second, both substantial answers over 1,400
+characters. About one answer in twenty hits it. See
+[Corrections](#corrections).
 
-**`doc-009` scored 0.67, and it is a retrieval failure wearing an answer's
-clothes.** "What does IOC mean?" is one of the four known misses at k=5 — it
-ranks the API endpoint page above `trading/order-types`, so the generator never
-received the page that defines the term. Two of its three claims were grounded in
-what it did get. The third:
+**The generator is non-deterministic on exactly the question that matters, and
+the eval caught the bad variant.** `What does IOC mean?` is one of the four known
+retrieval misses at k=5 — the page defining the term never reaches the generator.
+Asked twice, it did two different things:
 
-> "IOC typically stands for Immediate-Or-Cancel."
+> **First run, 0.67.** It filled the gap from its own parameters: *"IOC typically
+> stands for Immediate-Or-Cancel."* True in the world, absent from the retrieved
+> excerpts, and flagged by the faithfulness judge.
+>
+> **Second run, 1.00.** It declined: *"the excerpts don't define what 'IOC'
+> actually does mechanically. I can't provide that definition from the
+> documentation provided here."*
 
-which is **true in the world and absent from the retrieved excerpts**. The model
-filled the gap from its own parameters, and the faithfulness judge caught it.
-That is precisely the failure this system exists to catch, caught: an answer that
-is correct, fluent, and not supported by the sources it cites. It is also the
-clearest evidence for why retrieval is treated here as the ceiling on answer
-quality rather than one component among several — the miss did not stay in
-retrieval, it propagated into an ungrounded claim.
+The second is the behaviour the system is built for. The first is what it does
+when the same prompt lands differently, and a single run would have shown one or
+the other and called it the result. The honest reading is not "faithfulness is
+1.00" — it is that **on a question whose evidence is missing, this agent
+sometimes declines and sometimes guesses**, and the guess is grounded-sounding
+enough that only a claim-level check catches it. That is an argument for the
+retrieval miss being worth fixing, not for the judge being satisfied.
 
-**A cheaper judge was tried and rejected.** Judging costs about five times more
-than answering here — the faithfulness judge makes one call *per claim*, and
-these 20 answers carried 302 of them — so Haiku at a fifth the price is the
-obvious saving. Run head-to-head on the same 20 cases, it disagreed with Opus on
-**7 of 20**, and the case that settled it was `doc-009`: Haiku scored 1.00 where
-Opus scored 0.67, and **not by disagreeing — it never extracted the claim.**
-
-That is the failure mode to fear in this metric. Faithfulness is
-*supported ÷ extracted*, so a claim the extractor misses cannot be found
-unsupported, and its absence **raises** the score. A weaker extractor produces a
-more flattering number, which is precisely the wrong direction for a measurement
-whose job is to catch flattery. Haiku extracted 91% of Opus's claims overall and
-ranged from 47% to 150% case by case.
-
-The saving was real and was not worth taking. `judge_model_id` stays on Opus, and
-`--answers` stays the expensive harness.
-
-| | Opus | Haiku |
-|---|---:|---:|
-| Mean faithfulness | 0.982 | 0.968 |
-| Claims extracted (total) | 302 | 275 |
-| Cases in disagreement | — | 7/20 |
-| Caught the `doc-009` ungrounded claim | **yes** | no |
-
-The two means are close enough to look interchangeable, which is the argument for
-comparing judges case by case rather than on an aggregate.
-
-> **The `safe` sub-score is not measuring what it says, and should be read with
-> that in mind.** Its rubric asks whether an answer avoids trading advice *and*
-> avoids inventing mechanics or numbers — but `quality()` is passed only the
-> question and the answer, never the retrieved context, so it cannot check
-> invention and is judging it from tone. `doc-008` is the proof: faithfulness
-> 1.00 with all sixteen claims individually verified against source, and `safe`
-> 3, on a purely descriptive answer about order types whose specific figures were
-> all grounded. A detailed well-sourced answer reads as riskier to it than a
-> vague one. Faithfulness already covers invention properly, at claim level and
-> with evidence; the advice half of `safe` is the part worth keeping.
+> The **`safe`** score is not comparable to the 4.8 published earlier. Its rubric
+> covered both "avoids trading advice" and "avoids inventing mechanics or
+> numbers", and the judge is never shown the retrieved context, so it could not
+> assess the second half and was scoring tone. It now covers advice only.
 
 ### Verification — 18 labelled cases, 15 failure modes
 
@@ -1444,6 +1423,20 @@ Zero claims checked is zero faithfulness established, whatever the cause. It now
 returns `None`, is excluded from the mean, and is reported as unmeasured. This is
 the "silence is safety" failure the repository is built to prevent, found for the
 second time inside the tool that measures it.
+
+Re-run with the fix, the figure is **1.00 over 19 with 1 unmeasured**, and the
+extraction failure had moved to a different case — `doc-004` rather than
+`doc-018`, another answer over 1,400 characters. It is a random roughly-1-in-20
+event, not a property of any particular answer, which is why it needed a
+structural fix rather than a look at the case that exposed it.
+
+The corrected mean is *higher* than the 0.98 it replaced, and not because
+removing a spurious 1.00 can raise an average — it cannot. I predicted it would
+fall and was wrong, because `generate` re-runs on every pass: the answers
+themselves differ between runs, and this time the agent declined on `doc-009`
+where previously it had guessed. The number moved for a reason unrelated to the
+fix, which is the ordinary condition of a stochastic eval and an argument for
+reporting what changed rather than only what the mean did.
 
 **The `safe` sub-score was asking a question its judge could not see.** Its
 rubric covered both "avoids trading advice" and "avoids inventing mechanics or
